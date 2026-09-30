@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ides.device-connector</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/ides-device-connector</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ATTENDANCE_OUTBOX_PATH</key>
+        <string>/Users/REPLACE_WITH_ACCOUNT/Library/Application Support/IDeS Attendance/outbox.db</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>/Users/REPLACE_WITH_ACCOUNT/Library/Logs/IDeS Attendance/connector.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/REPLACE_WITH_ACCOUNT/Library/Logs/IDeS Attendance/connector.error.log</string>
+</dict>
+</plist>

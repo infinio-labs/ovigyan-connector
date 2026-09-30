@@ -83,8 +83,11 @@ versioned, staged, and rollback-capable.
 The repository is independent because it produces OS-specific artifacts and
 has a different release cadence from the Next.js control plane. The web app
 owns the versioned event contract and server-side projection. CI tests the
-connector on Windows, macOS, and Linux. Production releases publish signed
-per-OS installers; customers do not install Python manually.
+connector on Windows, macOS, and Linux. Production releases must publish signed
+per-OS installers; macOS distribution is deferred until Apple Developer signing
+and notarization are enabled. The current workflow produces unsigned standalone
+executables rather than installers, so it does not yet meet the production
+release requirement. Customers do not install Python manually.
 
 ## Roadmap
 

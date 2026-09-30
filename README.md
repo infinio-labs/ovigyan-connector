@@ -19,22 +19,44 @@ python -m pip install -e .
 export ATTENDANCE_DEVICE_HOST=192.168.1.50
 export ATTENDANCE_MACHINE_ID=NFZ824090078
 export ATTENDANCE_INGEST_URL=https://school.example.com/api/attendance/device-events
-export ATTENDANCE_INGEST_SECRET='server-ATTENDANCE_INGEST_SECRET'
+# Prefer the one-time token issued from IDeS Device Management.
+export ATTENDANCE_DEVICE_TOKEN='ides_dev_...'
+# Legacy bootstrap fallback only:
+# export ATTENDANCE_INGEST_SECRET='server-ATTENDANCE_INGEST_SECRET'
 python -m ides_device_connector.cli --once
 ```
 
-Windows PowerShell uses `$env:NAME="value"`; macOS uses the same shell
-commands as Linux. The runtime uses only cross-platform Python standard
-library features plus the ZK adapter dependency.
+Windows PowerShell uses `$env:NAME="value"`. The runtime uses only
+cross-platform Python standard library features plus the ZK adapter dependency.
+Linux and Windows are the supported production release targets. macOS support
+is deferred until Apple Developer signing and notarization are enabled.
 
 Optional variables: `ATTENDANCE_DEVICE_PORT` (default `4370`),
 `ATTENDANCE_DEVICE_PASSWORD` (default `0`), `ATTENDANCE_DEVICE_TIMEOUT`
 (default `10`), `ATTENDANCE_TIMEZONE` (default `Asia/Kolkata`),
-`ATTENDANCE_POLL_SECONDS` (default `60`), and `ATTENDANCE_OUTBOX_PATH`.
+`ATTENDANCE_POLL_SECONDS` (default `60`), `ATTENDANCE_HTTP_TIMEOUT` (default `30`),
+`ATTENDANCE_HTTP_RETRIES` (default `3`), `ATTENDANCE_RETRY_BACKOFF_SECONDS`
+(default `2`), and `ATTENDANCE_OUTBOX_PATH`.
 
-Run continuously with Windows Task Scheduler, macOS `launchd`, or Linux
-`systemd`. Native installers are built in the release pipeline with
-PyInstaller from `launcher.py`; build each artifact on its target OS and sign it there.
+The ingest URL must use HTTPS. For local-only testing, set
+`ATTENDANCE_ALLOW_INSECURE_HTTP=true` and use a localhost URL; remote HTTP is
+always rejected.
+
+Transient cloud failures (timeouts, connection errors, HTTP 408/429/5xx) are
+retried with bounded exponential backoff. Permanent HTTP errors are surfaced
+immediately; queued events remain durable for the next polling cycle.
+
+`ATTENDANCE_DEVICE_TOKEN` is preferred. It is shown once when an administrator
+issues or rotates a device credential; store it in the connector's local
+service configuration. The cloud stores only its hash. The shared
+`ATTENDANCE_INGEST_SECRET` remains for migration of older installations.
+
+Run continuously with Windows Task Scheduler or Linux `systemd`. Service
+templates are in `packaging/`; keep the environment file outside the repository.
+The Windows registration script restricts it to SYSTEM and local administrators
+and loads values into the connector process only. The release workflow currently
+publishes unsigned standalone executables, not signed native installers; do not
+deploy these assets until signing and installer packaging are in place.
 
 The connector never clears device attendance logs. Events are queued in a
 local SQLite WAL database, retried after network failure, and removed only
