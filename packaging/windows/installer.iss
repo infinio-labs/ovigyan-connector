@@ -37,7 +37,7 @@ Source: "unregister-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{commonappdata}\IDeS Device Connector"
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\unregister-task.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveTask"
+Filename: "cmd.exe"; Parameters: "/C set PSModulePath=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\unregister-task.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveTask"
 
 [Code]
 var
@@ -162,8 +162,9 @@ begin
     { register-task.ps1 restricts this file to SYSTEM and Administrators right after this. }
     if not SaveStringToFile(ConfigPath, Text, False) then
       RaiseException('Could not write ' + ConfigPath);
-    if not Exec('powershell.exe',
-      '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\register-task.ps1') + '"' +
+    { Clear PSModulePath: a PowerShell 7 parent leaks its module path and breaks Windows PowerShell's Get-Acl. }
+    if not Exec('cmd.exe',
+      '/C set PSModulePath=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\register-task.ps1') + '"' +
       ' -ExecutablePath "' + ExpandConstant('{app}\ides-device-connector.exe') + '"' +
       ' -ConfigPath "' + ConfigPath + '"' +
       ' -LogPath "' + ExpandConstant('{commonappdata}\IDeS Device Connector\connector.log') + '" -StartNow',
