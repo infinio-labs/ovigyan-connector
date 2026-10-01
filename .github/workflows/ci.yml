@@ -92,7 +92,9 @@ jobs:
       - name: Installer logs
         if: failure() && runner.os == 'Windows'
         shell: pwsh
-        run: Get-ChildItem *.log | ForEach-Object { "--- $_"; Get-Content $_ -Tail 80 }
+        run: |
+          Get-ChildItem "$env:ProgramData\IDeS Device Connector\*.txt" -ErrorAction SilentlyContinue | ForEach-Object { "--- $_"; Get-Content $_ }
+          Get-ChildItem *.log | ForEach-Object { "--- $_"; Get-Content $_ | Select-String -Pattern 'Exception|rror|exit code|register|Running|Process|Start' | Select-Object -Last 40 }
       - uses: actions/upload-artifact@v4
         with:
           name: ides-device-connector-${{ matrix.os }}

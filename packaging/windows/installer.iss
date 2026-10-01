@@ -36,9 +36,6 @@ Source: "unregister-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 [Dirs]
 Name: "{commonappdata}\IDeS Device Connector"
 
-[Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\register-task.ps1"" -ExecutablePath ""{app}\ides-device-connector.exe"" -ConfigPath ""{commonappdata}\IDeS Device Connector\connector.env"" -LogPath ""{commonappdata}\IDeS Device Connector\connector.log"" -StartNow"; Flags: runhidden waituntilterminated; StatusMsg: "Registering the background task..."
-
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\unregister-task.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveTask"
 
@@ -152,6 +149,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Text: string;
+  Code: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -162,6 +160,14 @@ begin
       'ATTENDANCE_DEVICE_TOKEN=' + Trim(SettingsPage.Values[3]) + #13#10 +
       'ATTENDANCE_OUTBOX_PATH=' + ExpandConstant('{commonappdata}\IDeS Device Connector\outbox.db') + #13#10;
     { register-task.ps1 restricts this file to SYSTEM and Administrators right after this. }
-    SaveStringToFile(ConfigPath, Text, False);
+    if not SaveStringToFile(ConfigPath, Text, False) then
+      RaiseException('Could not write ' + ConfigPath);
+    if not Exec('powershell.exe',
+      '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\register-task.ps1') + '"' +
+      ' -ExecutablePath "' + ExpandConstant('{app}\ides-device-connector.exe') + '"' +
+      ' -ConfigPath "' + ConfigPath + '"' +
+      ' -LogPath "' + ExpandConstant('{commonappdata}\IDeS Device Connector\connector.log') + '" -StartNow',
+      '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+      RaiseException('Registering the background task failed (exit code ' + IntToStr(Code) + '). See the setup log.');
   end;
 end;
