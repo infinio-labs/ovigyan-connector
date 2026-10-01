@@ -127,7 +127,8 @@ var
   Msg: string;
 begin
   Result := True;
-  if CurPageID = SettingsPage.ID then
+  { Silent installs are validated in PrepareToInstall; a message box here would block them forever. }
+  if (CurPageID = SettingsPage.ID) and not WizardSilent then
   begin
     Msg := SettingsError;
     if Msg <> '' then
