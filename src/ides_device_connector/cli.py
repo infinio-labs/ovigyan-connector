@@ -87,9 +87,12 @@ def run_once(test_events_path: str | None = None) -> int:
             outbox.enqueue(event.event_id, event.as_payload())
         transport.heartbeat()
         sent = 0
-        while batch := outbox.pending(500):
+        deferred: set[str] = set()  # events the cloud cannot take yet (unmapped terminal user); retried next poll
+        while batch := outbox.pending(500, deferred):
             result = transport.send([payload for _, payload in batch])
-            outbox.acknowledge(event_id for event_id, _ in batch)
+            held = set(result.get("deferredEventIds", []))
+            deferred |= held
+            outbox.acknowledge(event_id for event_id, _ in batch if event_id not in held)
             sent += int(result.get("accepted", len(batch)))
         print(f"device={host} queued={outbox.count()} sent={sent}")
         return 0

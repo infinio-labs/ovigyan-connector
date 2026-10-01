@@ -24,6 +24,10 @@ jobs:
             artifact: linux
           - os: windows-latest
             artifact: windows
+    env:
+      SIGN_CERT: ${{ secrets.WINDOWS_SIGN_CERT_BASE64 }}
+      WINDOWS_SIGN_CERT_BASE64: ${{ secrets.WINDOWS_SIGN_CERT_BASE64 }}
+      WINDOWS_SIGN_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGN_CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +43,33 @@ jobs:
           pyinstaller --clean --noconfirm --onefile \
             --collect-submodules zk \
             --name ides-device-connector launcher.py
+
+      - name: Install Inno Setup
+        if: matrix.artifact == 'windows'
+        run: choco install innosetup -y --no-progress
+
+      - name: Sign connector executable
+        if: matrix.artifact == 'windows' && env.SIGN_CERT != ''
+        shell: pwsh
+        run: ./packaging/windows/sign.ps1 -Path dist\ides-device-connector.exe
+
+      - name: Build Windows installer
+        if: matrix.artifact == 'windows'
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" packaging\windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw 'ISCC failed' }
+
+      - name: Sign installer
+        if: matrix.artifact == 'windows' && env.SIGN_CERT != ''
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\ides-device-connector-setup-*.exe | ForEach-Object { ./packaging/windows/sign.ps1 -Path $_.FullName }
+
+      - name: Warn when unsigned
+        if: matrix.artifact == 'windows' && env.SIGN_CERT == ''
+        run: echo '::warning::WINDOWS_SIGN_CERT_BASE64 is not set; the installer and executable are UNSIGNED and must not be deployed.'
 
       - name: Create integrity manifest
         shell: bash

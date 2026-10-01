@@ -67,8 +67,9 @@ def from_zk_row(row: Any, timezone_name: str) -> EventEnvelope:
     occurred_at = _timestamp(timestamp, timezone_name)
     punch = getattr(row, "punch", None)
     verify = getattr(row, "status", None)
-    uid = _text(getattr(row, "uid", None))
-    event_id = uid or hashlib.sha256(f"{user_id}|{occurred_at}|{punch}|{verify}".encode()).hexdigest()[:32]
+    # Never use the ZK `uid`: on the terminal it is the user's slot, repeated on every punch, so it
+    # would make a user's later punches look like duplicates of the first.
+    event_id = hashlib.sha256(f"{user_id}|{occurred_at}|{punch}|{verify}".encode()).hexdigest()[:32]
     raw = {
         "uid": getattr(row, "uid", None),
         "user_id": user_id,

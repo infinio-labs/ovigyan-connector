@@ -85,9 +85,10 @@ has a different release cadence from the Next.js control plane. The web app
 owns the versioned event contract and server-side projection. CI tests the
 connector on Windows, macOS, and Linux. Production releases must publish signed
 per-OS installers; macOS distribution is deferred until Apple Developer signing
-and notarization are enabled. The current workflow produces unsigned standalone
-executables rather than installers, so it does not yet meet the production
-release requirement. Customers do not install Python manually.
+and notarization are enabled. Windows now ships an Inno Setup installer
+(`packaging/windows/installer.iss`) built and smoke-tested in CI; it is signed when the signing secrets are set and
+unsigned (with a CI warning) otherwise, so production use still requires them. Linux is a bare executable plus the
+systemd unit. Customers do not install Python manually.
 
 ## Roadmap
 

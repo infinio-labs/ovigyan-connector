@@ -52,6 +52,34 @@ jobs:
           pyinstaller --clean --noconfirm --onefile
           --collect-submodules zk
           --name ides-device-connector launcher.py
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        run: choco install innosetup -y --no-progress
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=0.0.0-ci packaging\windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw 'ISCC failed' }
+      - name: Smoke-test installer (silent install, task, config ACL, uninstall)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem dist\ides-device-connector-setup-*.exe).FullName
+          $cfg = "$env:ProgramData\IDeS Device Connector\connector.env"
+          $task = 'IDeS Attendance Device Connector'
+          $bad = Start-Process $setup -Wait -PassThru -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/DEVICE_HOST=192.0.2.1','/MACHINE_ID=CI-1','/INGEST_URL=http://example.invalid/x','/TOKEN=ides_dev_ci'
+          if ($bad.ExitCode -eq 0) { throw 'installer accepted a non-HTTPS ingest URL' }
+          $ok = Start-Process $setup -Wait -PassThru -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log','/DEVICE_HOST=192.0.2.1','/MACHINE_ID=CI-1','/INGEST_URL=https://example.invalid/api/attendance/device-events','/TOKEN=ides_dev_ci'
+          if ($ok.ExitCode -ne 0) { Get-Content install.log; throw "install failed: $($ok.ExitCode)" }
+          Get-ScheduledTask -TaskName $task | Out-Null
+          if (-not (Select-String -Path $cfg -Pattern '^ATTENDANCE_MACHINE_ID=CI-1' -Quiet)) { throw 'config not written' }
+          $who = (Get-Acl $cfg).Access | ForEach-Object { $_.IdentityReference.Value }
+          $extra = $who | Where-Object { $_ -notmatch 'SYSTEM|Administrators' }
+          if ($extra) { throw "config readable by: $extra" }
+          Start-Process "$env:ProgramFiles\IDeS Device Connector\unins000.exe" -Wait -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'task not removed on uninstall' }
       - uses: actions/upload-artifact@v4
         with:
           name: ides-device-connector-${{ matrix.os }}

@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true)] [string]$ExecutablePath,
-    [Parameter(Mandatory = $true)] [string]$ConfigPath
+    [Parameter(Mandatory = $true)] [string]$ConfigPath,
+    [string]$LogPath,
+    [switch]$StartNow
 )
 
 $ErrorActionPreference = 'Stop'
@@ -8,6 +10,7 @@ $taskName = 'IDeS Attendance Device Connector'
 $runnerPath = Join-Path $PSScriptRoot 'run-connector.ps1'
 $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ExecutablePath "{1}" -ConfigPath "{2}"' -f `
     $runnerPath, $ExecutablePath, $ConfigPath
+if ($LogPath) { $arguments += ' -LogPath "{0}"' -f $LogPath }
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments -WorkingDirectory (Split-Path $ExecutablePath)
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable
@@ -43,3 +46,4 @@ Get-Content -LiteralPath $ConfigPath | ForEach-Object {
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
 Write-Host "Registered $taskName"
+if ($StartNow) { Start-ScheduledTask -TaskName $taskName }

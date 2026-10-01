@@ -51,12 +51,35 @@ issues or rotates a device credential; store it in the connector's local
 service configuration. The cloud stores only its hash. The shared
 `ATTENDANCE_INGEST_SECRET` remains for migration of older installations.
 
+## Windows installer
+
+Release builds publish `ides-device-connector-setup-<version>.exe` (Inno Setup). Run it as an
+administrator on an always-on PC **in the terminal's network**. The wizard asks for the terminal IP,
+Machine ID, the IDeS ingest URL (HTTPS) and the connector token issued in IDeS, then:
+
+- installs to `C:\Program Files\IDeS Device Connector`;
+- writes `C:\ProgramData\IDeS Device Connector\connector.env` (readable only by SYSTEM and Administrators);
+- registers a boot-time scheduled task running as SYSTEM, restarts on failure, and starts it now;
+- logs to `C:\ProgramData\IDeS Device Connector\connector.log`; the undelivered-punch queue lives next to it.
+
+Silent roll-out:
+
+```powershell
+.\ides-device-connector-setup-1.2.3.exe /VERYSILENT /SUPPRESSMSGBOXES `
+  /DEVICE_HOST=192.168.1.50 /MACHINE_ID=NFZ824090078 `
+  /INGEST_URL=https://school.example.com/api/attendance/device-events /TOKEN=ides_dev_...
+```
+
+Re-running a newer installer upgrades in place and keeps the existing settings. Uninstalling removes the program and
+task but keeps `connector.env`, the log and the queue so no punch is lost; delete that folder by hand to remove them.
+CI builds the installer and smoke-tests install, config permissions and uninstall on `windows-latest`.
+Signing: set repository secrets `WINDOWS_SIGN_CERT_BASE64` (PFX, base64) and `WINDOWS_SIGN_CERT_PASSWORD`;
+without them the release job warns and the output is unsigned.
+
 Run continuously with Windows Task Scheduler or Linux `systemd`. Service
 templates are in `packaging/`; keep the environment file outside the repository.
 The Windows registration script restricts it to SYSTEM and local administrators
-and loads values into the connector process only. The release workflow currently
-publishes unsigned standalone executables, not signed native installers; do not
-deploy these assets until signing and installer packaging are in place.
+and loads values into the connector process only. Releases are unsigned until the signing secrets above are set; do not deploy unsigned assets.
 
 The connector never clears device attendance logs. Events are queued in a
 local SQLite WAL database, retried after network failure, and removed only

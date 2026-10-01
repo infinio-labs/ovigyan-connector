@@ -18,23 +18,37 @@ class Outbox:
         self.connection.execute(
             "CREATE TABLE IF NOT EXISTS events (event_id TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)"
         )
+        # Ledger of acknowledged events: the terminal log is never cleared, so every poll re-reads
+        # all history; this keeps it from being queued and re-sent each time.
+        self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS delivered (event_id TEXT PRIMARY KEY, at TEXT DEFAULT CURRENT_TIMESTAMP)"
+        )
+        # Pruned rows are only ever re-sent once more; the cloud dedupes by event ID.
+        self.connection.execute("DELETE FROM delivered WHERE at < datetime('now', '-90 days')")
         self.connection.commit()
 
     def enqueue(self, event_id: str, payload: dict[str, Any]) -> None:
         self.connection.execute(
-            "INSERT OR IGNORE INTO events(event_id, payload) VALUES (?, ?)",
-            (event_id, json.dumps(payload, separators=(",", ":"), sort_keys=True)),
+            "INSERT OR IGNORE INTO events(event_id, payload) SELECT ?, ? "
+            "WHERE NOT EXISTS (SELECT 1 FROM delivered WHERE event_id = ?)",
+            (event_id, json.dumps(payload, separators=(",", ":"), sort_keys=True), event_id),
         )
         self.connection.commit()
 
-    def pending(self, limit: int = 500) -> list[tuple[str, dict[str, Any]]]:
+    def pending(self, limit: int = 500, exclude: Iterable[str] = ()) -> list[tuple[str, dict[str, Any]]]:
+        skip = list(exclude)
+        marks = ",".join("?" * len(skip))
         rows = self.connection.execute(
-            "SELECT event_id, payload FROM events ORDER BY created_at, event_id LIMIT ?", (limit,)
+            f"SELECT event_id, payload FROM events {f'WHERE event_id NOT IN ({marks})' if skip else ''} "
+            "ORDER BY created_at, event_id LIMIT ?",
+            (*skip, limit),
         ).fetchall()
         return [(event_id, json.loads(payload)) for event_id, payload in rows]
 
     def acknowledge(self, event_ids: Iterable[str]) -> None:
-        self.connection.executemany("DELETE FROM events WHERE event_id = ?", ((event_id,) for event_id in event_ids))
+        ids = [(event_id,) for event_id in event_ids]
+        self.connection.executemany("INSERT OR IGNORE INTO delivered(event_id) VALUES (?)", ids)
+        self.connection.executemany("DELETE FROM events WHERE event_id = ?", ids)
         self.connection.commit()
 
     def count(self) -> int:
