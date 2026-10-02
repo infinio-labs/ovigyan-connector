@@ -36,8 +36,11 @@ def _text(value: Any) -> str | None:
 
 
 def _direction(punch: Any) -> str:
+    # Only the two states every ZK firmware agrees on. 2/3 are break-out/break-in and 4/5 overtime
+    # in/out: they are not a shift boundary, so they are kept raw as "unknown" instead of guessed
+    # into in/out (a break-in read as "out" would put a lunch break in as the day's check-out).
     try:
-        return {0: "in", 1: "out", 2: "in", 3: "out"}[int(punch)]
+        return {0: "in", 1: "out"}[int(punch)]
     except (KeyError, TypeError, ValueError):
         return "unknown"
 

@@ -28,3 +28,16 @@ def test_same_user_slot_uid_does_not_collide_across_punches():
         for h, p in ((8, 0), (16, 1))
     ]
     assert from_zk_row(rows[0], "Asia/Kolkata").event_id != from_zk_row(rows[1], "Asia/Kolkata").event_id
+
+
+def test_break_and_overtime_punches_are_not_guessed_into_in_or_out():
+    from ides_device_connector.events import from_zk_row
+
+    directions = {
+        punch: from_zk_row(
+            SimpleNamespace(uid=1, user_id="42", timestamp=datetime(2026, 9, 10, 9, 15), punch=punch, status=1),
+            "Asia/Kolkata",
+        ).direction
+        for punch in range(0, 6)
+    }
+    assert directions == {0: "in", 1: "out", 2: "unknown", 3: "unknown", 4: "unknown", 5: "unknown"}
