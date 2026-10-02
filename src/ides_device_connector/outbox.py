@@ -23,15 +23,23 @@ class Outbox:
         self.connection.execute(
             "CREATE TABLE IF NOT EXISTS delivered (event_id TEXT PRIMARY KEY, at TEXT DEFAULT CURRENT_TIMESTAMP)"
         )
+        # Events the cloud permanently refused. Kept (with the reason) for inspection and so the
+        # re-read terminal log does not queue them again; they no longer block delivery.
+        self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS rejected "
+            "(event_id TEXT PRIMARY KEY, payload TEXT NOT NULL, error TEXT NOT NULL, at TEXT DEFAULT CURRENT_TIMESTAMP)"
+        )
         # Pruned rows are only ever re-sent once more; the cloud dedupes by event ID.
         self.connection.execute("DELETE FROM delivered WHERE at < datetime('now', '-90 days')")
+        self.connection.execute("DELETE FROM rejected WHERE at < datetime('now', '-90 days')")
         self.connection.commit()
 
     def enqueue(self, event_id: str, payload: dict[str, Any]) -> None:
         self.connection.execute(
             "INSERT OR IGNORE INTO events(event_id, payload) SELECT ?, ? "
-            "WHERE NOT EXISTS (SELECT 1 FROM delivered WHERE event_id = ?)",
-            (event_id, json.dumps(payload, separators=(",", ":"), sort_keys=True), event_id),
+            "WHERE NOT EXISTS (SELECT 1 FROM delivered WHERE event_id = ?) "
+            "AND NOT EXISTS (SELECT 1 FROM rejected WHERE event_id = ?)",
+            (event_id, json.dumps(payload, separators=(",", ":"), sort_keys=True), event_id, event_id),
         )
         self.connection.commit()
 
@@ -50,6 +58,18 @@ class Outbox:
         self.connection.executemany("INSERT OR IGNORE INTO delivered(event_id) VALUES (?)", ids)
         self.connection.executemany("DELETE FROM events WHERE event_id = ?", ids)
         self.connection.commit()
+
+    def quarantine(self, event_id: str, error: str) -> None:
+        """Move an event the cloud refuses out of the queue so it cannot block the ones behind it."""
+        self.connection.execute(
+            "INSERT OR REPLACE INTO rejected(event_id, payload, error) SELECT event_id, payload, ? FROM events WHERE event_id = ?",
+            (error, event_id),
+        )
+        self.connection.execute("DELETE FROM events WHERE event_id = ?", (event_id,))
+        self.connection.commit()
+
+    def rejected_count(self) -> int:
+        return int(self.connection.execute("SELECT COUNT(*) FROM rejected").fetchone()[0])
 
     def count(self) -> int:
         return int(self.connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])

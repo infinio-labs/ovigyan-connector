@@ -42,6 +42,11 @@ The ingest URL must use HTTPS. For local-only testing, set
 `ATTENDANCE_ALLOW_INSECURE_HTTP=true` and use a localhost URL; remote HTTP is
 always rejected.
 
+If the cloud refuses a single punch because of its own content (a `Device event ...` 400), the
+connector splits the batch, quarantines just that punch (kept in the outbox `rejected` table with the
+reason, and reported as `rejected=N` in the run summary) and delivers the rest. Errors about the
+request or credentials (401, 409, other 400s) still stop the run and leave the queue untouched.
+
 Transient cloud failures (timeouts, connection errors, HTTP 408/429/5xx) are
 retried with bounded exponential backoff. Permanent HTTP errors are surfaced
 immediately; queued events remain durable for the next polling cycle.

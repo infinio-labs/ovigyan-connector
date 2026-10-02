@@ -21,3 +21,15 @@ def test_acknowledged_events_are_not_requeued_and_excluded_ids_are_skipped(tmp_p
     outbox.enqueue("a", {"eventId": "a"})  # device log re-read after delivery
     assert outbox.count() == 1
     outbox.close()
+
+
+def test_quarantined_events_leave_the_queue_and_are_not_requeued(tmp_path):
+    outbox = Outbox(tmp_path / "outbox.db")
+    outbox.enqueue("bad", {"eventId": "bad"})
+    outbox.enqueue("good", {"eventId": "good"})
+    outbox.quarantine("bad", "Device event timestamp is invalid.")
+    assert [i for i, _ in outbox.pending()] == ["good"]
+    outbox.enqueue("bad", {"eventId": "bad"})  # the terminal log is re-read on every poll
+    assert outbox.count() == 1
+    assert outbox.rejected_count() == 1
+    outbox.close()
