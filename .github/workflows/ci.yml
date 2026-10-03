@@ -2,15 +2,31 @@ name: connector-ci
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connector-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    name: Test (${{ matrix.name }}, Python ${{ matrix.python }})
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ['3.10', '3.13']
+        # Linux runs on the self-hosted runner. Windows stays on a GitHub-hosted runner: the connector ships
+        # as a Windows service and the installer scripts can only be checked there. macOS is not shipped.
+        include:
+          - { name: linux, os: self-hosted, python: '3.10' }
+          - { name: linux, os: self-hosted, python: '3.13' }
+          - { name: windows, os: windows-latest, python: '3.13' }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,7 +36,7 @@ jobs:
       - run: python -m pytest -q
       - run: python -m compileall -q src
       - name: Validate Windows service scripts
-        if: runner.os == 'Windows'
+        if: matrix.name == 'windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -34,12 +50,16 @@ jobs:
           }
 
   package:
-    name: Package (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Package (${{ matrix.name }})
+    needs: test
     strategy:
+      fail-fast: false
       matrix:
-        # macOS remains test-only until Apple signing/notarization is enabled.
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - { name: linux, os: self-hosted }
+          - { name: windows, os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -53,16 +73,16 @@ jobs:
           --collect-submodules zk
           --name ides-device-connector launcher.py
       - name: Install Inno Setup
-        if: runner.os == 'Windows'
+        if: matrix.name == 'windows'
         run: choco install innosetup -y --no-progress
       - name: Build Windows installer
-        if: runner.os == 'Windows'
+        if: matrix.name == 'windows'
         shell: pwsh
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=0.0.0-ci packaging\windows\installer.iss
           if ($LASTEXITCODE -ne 0) { throw 'ISCC failed' }
       - name: Smoke-test installer (silent install, task, config ACL, uninstall)
-        if: runner.os == 'Windows'
+        if: matrix.name == 'windows'
         timeout-minutes: 10
         shell: pwsh
         run: |
@@ -90,12 +110,12 @@ jobs:
           $unCode = Run-Exe "$env:ProgramFiles\IDeS Device Connector\unins000.exe" ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'uninstall'
           if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'task not removed on uninstall' }
       - name: Installer logs
-        if: failure() && runner.os == 'Windows'
+        if: failure() && matrix.name == 'windows'
         shell: pwsh
         run: |
           Get-ChildItem "$env:ProgramData\IDeS Device Connector\*.txt" -ErrorAction SilentlyContinue | ForEach-Object { "--- $_"; Get-Content $_ }
           Get-ChildItem *.log | ForEach-Object { "--- $_"; Get-Content $_ | Select-String -Pattern 'Exception|rror|exit code|register|Running|Process|Start' | Select-Object -Last 40 }
       - uses: actions/upload-artifact@v4
         with:
-          name: ides-device-connector-${{ matrix.os }}
+          name: ides-device-connector-${{ matrix.name }}
           path: dist/ides-device-connector*
