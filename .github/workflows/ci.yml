@@ -7,8 +7,8 @@ on:
   workflow_call:
     inputs:
       package:
-        type: boolean
-        default: true
+        type: string # a string: a boolean input is null outside workflow_call and null != false is false
+        default: 'true'
 
 permissions:
   contents: read
@@ -55,7 +55,7 @@ jobs:
 
   package:
     name: Package (${{ matrix.name }})
-    if: inputs.package != false
+    if: inputs.package != 'false'
     strategy:
       fail-fast: false
       matrix:
