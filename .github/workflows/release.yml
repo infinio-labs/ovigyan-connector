@@ -17,6 +17,8 @@ jobs:
   ci:
     name: Verify tagged commit
     uses: ./.github/workflows/ci.yml
+    with:
+      package: false # release packages (and signs) the artifacts itself
 
   package:
     name: Package (${{ matrix.artifact }})

@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+    inputs:
+      package:
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -51,7 +55,7 @@ jobs:
 
   package:
     name: Package (${{ matrix.name }})
-    needs: test
+    if: inputs.package != false
     strategy:
       fail-fast: false
       matrix:
