@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ovigyan-connector"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cross-platform edge connector for Ovigyan attendance devices"
 requires-python = ">=3.10"
 dependencies = ["pyzk==0.9", "tzdata==2025.2", "cryptography>=42"]
