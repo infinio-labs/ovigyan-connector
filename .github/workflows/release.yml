@@ -36,12 +36,25 @@ jobs:
       SIGN_CERT: ${{ secrets.WINDOWS_SIGN_CERT_BASE64 }}
       WINDOWS_SIGN_CERT_BASE64: ${{ secrets.WINDOWS_SIGN_CERT_BASE64 }}
       WINDOWS_SIGN_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGN_CERT_PASSWORD }}
+      BUGSINK_DSN: ${{ vars.BUGSINK_DSN }}
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
+
+      # Error reports go to Bugsink when the BUGSINK_DSN repository variable is set (a DSN is not a secret: it only
+      # lets a program send reports). Written into the build, validated so nothing else can slip into the source.
+      - name: Build in the error-report address
+        shell: bash
+        run: |
+          if [ -n "$BUGSINK_DSN" ]; then
+            [[ "$BUGSINK_DSN" =~ ^https://[A-Za-z0-9@:._/-]+$ ]] || { echo '::error::BUGSINK_DSN is not a valid https DSN'; exit 1; }
+            printf 'DSN = "%s"\n' "$BUGSINK_DSN" > src/ovigyan_connector/telemetry_dsn.py
+          else
+            echo '::warning::BUGSINK_DSN is not set; this build will not report errors.'
+          fi
 
       - name: Build executable
         shell: bash
