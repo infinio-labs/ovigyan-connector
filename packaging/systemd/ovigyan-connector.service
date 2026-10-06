@@ -11,6 +11,9 @@ StateDirectory=ovigyan-connector
 StateDirectoryMode=0700
 WorkingDirectory=/var/lib/ovigyan-connector
 Environment=OVIGYAN_CONNECTOR_HOME=/var/lib/ovigyan-connector
+# Before each start, as root: switch to an update the connector downloaded and verified (the program checks the
+# signature again). The leading -+ means: run with full privileges, and never block the start if it finds nothing.
+ExecStartPre=-+/usr/local/bin/ovigyan-connector apply-update
 ExecStart=/usr/local/bin/ovigyan-connector run
 Restart=always
 RestartSec=10

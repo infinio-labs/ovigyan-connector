@@ -133,6 +133,29 @@ the link it prints. Settings are in `/var/lib/ovigyan-connector` (owner-only). `
 the service and keeps the settings; add `--purge` to delete them too. The notification-area icon is built into the
 Windows and macOS builds only.
 
+## Updates
+
+Nobody has to do anything after the first install. Each Ovigyan site tells its connectors which connector version it
+was tested with (the web app pins it; `CONNECTOR_AUTO_UPDATE=false` on the site holds them). A connector that is
+behind waits until it has nothing queued, downloads that release's `manifest.json` and signature, and installs it only
+if the signature matches the public key built into the program (`src/ovigyan_connector/update_key.py`), every file
+matches the manifest, and the new build passes `ovigyan-connector self-test` on this computer. It never installs
+anything other than the version the site asked for, never an older one, and tries at most once an hour. Pairing,
+terminals and queued punches are untouched.
+
+- **Windows:** the signed setup runs silently as a one-off SYSTEM task (the same upgrade as a manual reinstall).
+- **Linux:** the verified build is staged, the service restarts, and systemd's root-only `ExecStartPre`
+  (`ovigyan-connector apply-update`) checks it again and swaps `/usr/local/bin/ovigyan-connector`, keeping the old
+  one as `ovigyan-connector.previous`. Reinstall the unit (`ovigyan-connector-install.sh`) once to get that hook.
+- **Manually:** `ovigyan-connector update` (what the site wants) or `--target X.Y.Z` (support); `self-test` checks a build.
+- macOS builds do not self-update.
+
+One-time setup for maintainers: run `python scripts/make-update-key.py`, commit the public key it writes, and store the
+private key it prints as the repository secret `CONNECTOR_UPDATE_SIGNING_KEY` (instructions are in the script). Release
+workflow signs `manifest.json` with it; without the secret the release is built but not offered to connectors. Publish
+the draft release for connectors to see it, then bump the pinned version in the web app (`update-policy.ts`).
+Protect the private key: whoever holds it can push code to every school.
+
 The connector never clears device attendance logs. Events are queued in a
 local SQLite WAL database, retried after network failure, and removed only
 after a successful server response. The server remains responsible for

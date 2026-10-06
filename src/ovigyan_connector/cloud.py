@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 from . import __version__
 from .branding import parse_branding
+from .updater import Policy
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
@@ -83,6 +84,7 @@ class CloudConfig:
     pending: set[str] = field(default_factory=set)
     rejected: set[str] = field(default_factory=set)
     branding: dict | None = None  # None: the site did not send a block at all
+    update: Policy | None = None  # None: an older site that has no opinion on versions
 
 
 def _parse_instant(value: object) -> datetime | None:
@@ -92,6 +94,13 @@ def _parse_instant(value: object) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _parse_policy(raw: object) -> Policy | None:
+    if not isinstance(raw, dict):
+        return None
+    text = lambda key: raw.get(key) if isinstance(raw.get(key), str) else None  # noqa: E731
+    return Policy(target=text("target"), minimum=text("minimum"), auto=raw.get("auto") is not False)
 
 
 class CloudClient:
@@ -215,4 +224,5 @@ class CloudClient:
             pending={str(value) for value in result.get("pending", [])},
             rejected={str(value) for value in result.get("rejected", [])},
             branding=parse_branding(result["branding"]) if "branding" in result else None,
+            update=_parse_policy(result.get("update")),
         )

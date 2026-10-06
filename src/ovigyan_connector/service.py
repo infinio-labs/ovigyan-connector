@@ -24,6 +24,7 @@ from .cloud import CloudClient, CloudConfig, CloudError, normalize_server_url
 from .devices import DeviceInfo, ProbeError, probe, validate_address
 from .events import EventEnvelope
 from .outbox import Outbox
+from .updater import Outcome, Policy, Updater
 from .state import LocalDevice, State, StateStore
 from .transport import EventTransport
 
@@ -77,12 +78,16 @@ class ConnectorService:
         retry_backoff_seconds: float = 1.0,
         probe_timeout: int | None = None,
         logo_fetcher: Callable[[str], str | None] = fetch_logo,
+        updater: Updater | None = None,
     ):
         self.store = store or StateStore()
         self.client_factory = client_factory
         self.prober = prober
         self.reader = reader
         self.logo_fetcher = logo_fetcher
+        self.updater = updater or Updater(self.store.home)
+        self.policy: Policy | None = None  # what the site last asked for
+        self.restart_requested = False
         self.http_retries = http_retries
         self.retry_backoff_seconds = retry_backoff_seconds
         # How long to wait for a terminal when adding it. Windows takes a few seconds to give up on a closed port.
@@ -221,6 +226,7 @@ class ConnectorService:
                 CycleReport(_utc_now(), "offline", error.message, 60, [self._status(d, UNKNOWN, "Waiting for the connection.") for d in state.devices])
             )
         self._adopt_branding(config.branding)
+        self.policy = config.update
         devices = [self._poll(state, client, device, config) for device in state.devices]
         return self._finish(CycleReport(_utc_now(), "ok", "Connected.", config.poll_seconds, devices))
 
@@ -343,6 +349,7 @@ class ConnectorService:
             "server": state.server,
             "connectorName": state.connector_name,
             "brand": self._brand_summary(state.branding),
+            "update": self.updater.state(),
             "devices": [
                 {"id": d.id, "host": d.host, "port": d.port, "serial": d.serial, "model": d.model, "firmware": d.firmware}
                 for d in state.devices
@@ -364,12 +371,29 @@ class ConnectorService:
                 if report.connector in {"unpaired", "revoked"}:
                     wait = 15.0  # idle until someone pairs, but notice it quickly
                 failures = 0 if report.connector != "offline" else failures + 1
+                if self.check_update(report, stop):
+                    return
             except Exception as error:  # noqa: BLE001 - the service must outlive any single bad cycle
                 failures += 1
                 print(f"ovigyan-connector: {error}", file=sys.stderr)
             if failures:
                 wait = min(300.0, wait * (2 ** min(failures, 3)))
             self._pause(stop, wait if fixed_wait is None else fixed_wait)
+
+    def check_update(self, report: CycleReport, stop: threading.Event | None = None) -> bool:
+        """After a cycle, move to the version the site wants when it is safe. True means: stop now, a restart follows."""
+        if report.connector != "ok" or not self.policy:
+            return False
+        idle = all(device.queued == 0 for device in report.devices)
+        outcome = self.updater.run(self.policy, idle=idle)
+        if outcome.status in {"restart", "failed"}:
+            print(f"ovigyan-connector: update: {outcome.message}", file=sys.stderr, flush=True)
+        if outcome.status == "restart":
+            self.restart_requested = True
+            if stop is not None:
+                stop.set()
+            return True
+        return False
 
     def _pause(self, stop, seconds: float) -> None:
         if self._wake is None:

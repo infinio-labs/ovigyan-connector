@@ -19,7 +19,7 @@ from .ui import DEFAULT_UI_PORT, UiServer, open_url, ui_token
 def _ui_port(value: int | None) -> int:
     return value or int(os.environ.get("OVIGYAN_CONNECTOR_UI_PORT", "0") or 0) or DEFAULT_UI_PORT
 
-COMMANDS = {"pair", "unpair", "add-device", "devices", "remove-device", "status", "run", "open", "tray"}
+COMMANDS = {"pair", "unpair", "add-device", "devices", "remove-device", "status", "run", "open", "tray", "update", "self-test", "apply-update"}
 
 _STATE_WORDS = {
     "ok": "working",
@@ -53,6 +53,11 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--once", action="store_true")
     run.add_argument("--no-ui", action="store_true", help="do not serve the local page")
     run.add_argument("--ui-port", type=int, help=f"port for the local page (default {DEFAULT_UI_PORT})")
+    update = sub.add_parser("update", help="update now to the version your Ovigyan site wants (this happens automatically)")
+    update.add_argument("--target", help="install this version instead of what the site wants (support and testing)")
+    sub.add_parser("self-test", help="check that this build starts (used before installing an update)")
+    apply = sub.add_parser("apply-update", help="Linux service helper: swap in a verified, staged update (run as root)")
+    apply.add_argument("--install-path", default="/usr/local/bin/ovigyan-connector")
     sub.add_parser("tray", help="show a notification-area icon with the connector's status")
     opener = sub.add_parser("open", help="open the connector's page in your browser")
     opener.add_argument("--ui-port", type=int)
@@ -136,6 +141,33 @@ def run_command(argv: list[str], service: ConnectorService | None = None) -> int
                 if server:
                     server.shutdown()
                     server.server_close()
+        elif args.command == "self-test":
+            import cryptography  # noqa: F401 - the updater needs it
+            import zk  # noqa: F401
+
+            from . import __version__
+
+            print(f"ovigyan-connector {__version__} ok")
+        elif args.command == "apply-update":
+            from pathlib import Path
+
+            from .updater import apply_staged
+
+            print(apply_staged(service.store.home, Path(args.install_path)))
+        elif args.command == "update":
+            from .updater import Policy
+
+            if args.target:
+                policy = Policy(target=args.target, auto=True)
+            else:
+                report = service.run_cycle()
+                if not service.policy:
+                    print(f"Can't tell which version to use ({report.message}).", file=sys.stderr)
+                    return 1
+                policy = service.policy
+            outcome = service.updater.run(policy, force=True, allow_same=bool(args.target))
+            print(outcome.message)
+            return 1 if outcome.status in {"failed", "disabled"} else 0
         elif args.command == "tray":
             from .tray import run_tray
 

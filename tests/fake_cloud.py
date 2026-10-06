@@ -82,6 +82,7 @@ class FakeCloud(ThreadingHTTPServer):
         self.poll_seconds = 60
         self.force_status = 0
         self.force_error = "boom"
+        self.update: dict | None = None  # what version the site wants; None = an older site with no opinion
         self.branding: dict | None = None  # None = an older site that sends no branding block
 
     def approve(self, serial: str, ignore_before: str | None = None, enabled: bool = True, timezone: str = "Asia/Kolkata") -> None:
@@ -100,6 +101,7 @@ class FakeCloud(ThreadingHTTPServer):
             "pending": [s for s in self.reported if self.state_of(s) == "pending"],
             "rejected": sorted(self.rejected),
             **self.brand_block(),
+            **({} if self.update is None else {"update": self.update}),
         }
 
     def brand_block(self) -> dict:

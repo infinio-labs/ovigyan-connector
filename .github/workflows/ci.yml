@@ -86,6 +86,9 @@ jobs:
           extra=""
           if [ "${{ matrix.name }}" != "linux" ]; then extra="--collect-submodules pystray"; fi
           pyinstaller --clean --noconfirm --onefile --collect-submodules zk $extra --name ovigyan-connector launcher.py
+      - name: Self-test the executable (the updater relies on this)
+        shell: bash
+        run: dist/ovigyan-connector self-test | grep -q ' ok$'
       - name: Linux install kit
         if: matrix.name == 'linux'
         run: |
@@ -149,6 +152,62 @@ jobs:
           $out = (& $exe status) -join "`n"
           if ($out -notmatch 'Not paired') { throw "status said: $out" }
           if ($out -match 'connector 0\.0\.0') { throw "the executable does not know its version: $out" }
+          # Automatic update: fetch a signed release, check it, install it as a separate SYSTEM task.
+          $version = ([regex]::Match(((& $exe status) -join "`n"), 'connector (\d+\.\d+\.\d+)')).Groups[1].Value
+          if (-not $version) { throw 'could not read the connector version' }
+          $stage = Join-Path $env:RUNNER_TEMP 'release-files'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item $exe "$stage\ovigyan-connector.exe"
+          Copy-Item $setup "$stage\ovigyan-connector-setup-$version.exe"
+          function Start-Release([string[]]$extra, [int]$port) {
+            $log = Join-Path $env:RUNNER_TEMP "release-$port.txt"
+            Remove-Item $log -ErrorAction SilentlyContinue
+            $args_ = @('tests\support\serve_release.py', '--version', $version, '--port', "$port",
+              '--file', "$stage\ovigyan-connector.exe=ovigyan-connector.exe",
+              '--file', "$stage\ovigyan-connector-setup-$version.exe=ovigyan-connector-setup-$version.exe") + $extra
+            $p = Start-Process python -PassThru -NoNewWindow -RedirectStandardOutput $log -ArgumentList $args_
+            $deadline = (Get-Date).AddSeconds(30)
+            while ((Get-Date) -lt $deadline -and -not ((Test-Path $log) -and ((Get-Content $log -Raw) -match 'ready'))) { Start-Sleep -Milliseconds 300 }
+            if (-not ((Get-Content $log -Raw) -match 'ready')) { throw 'the test release host did not start' }
+            return @{ Process = $p; Key = (Get-Content $log)[0].Trim() }
+          }
+          function Connector-Started {
+            (Get-CimInstance Win32_Process -Filter "Name='ovigyan-connector.exe'" | Where-Object { $_.CommandLine -match ' run' } |
+              Measure-Object -Property CreationDate -Maximum).Maximum
+          }
+          $env:OVIGYAN_ALLOW_INSECURE_HTTP = 'true'
+          # 1. A release signed by the wrong key is refused, and no installer runs.
+          $bad = Start-Release @('--wrong-key') 8765
+          $env:OVIGYAN_UPDATE_BASE_URL = 'http://127.0.0.1:8765'; $env:OVIGYAN_UPDATE_PUBLIC_KEY = $bad.Key
+          $refused = (& $exe update --target $version 2>&1) -join "`n"
+          $refusedCode = $LASTEXITCODE
+          Stop-Process -Id $bad.Process.Id -Force
+          if ($refusedCode -eq 0 -or $refused -notmatch 'signature') { throw "a wrongly signed release was not refused (exit $refusedCode): $refused" }
+          if (Get-ScheduledTask -TaskName 'Ovigyan Connector Update' -ErrorAction SilentlyContinue) { throw 'an installer was started for a bad release' }
+          # 2. A correctly signed release installs itself: the background task restarts on the new files.
+          $before = Connector-Started
+          $good = Start-Release @() 8766
+          $env:OVIGYAN_UPDATE_BASE_URL = 'http://127.0.0.1:8766'; $env:OVIGYAN_UPDATE_PUBLIC_KEY = $good.Key
+          $said = (& $exe update --target $version 2>&1) -join "`n"
+          $code = $LASTEXITCODE
+          Write-Host $said
+          Remove-Item Env:OVIGYAN_UPDATE_BASE_URL, Env:OVIGYAN_UPDATE_PUBLIC_KEY, Env:OVIGYAN_ALLOW_INSECURE_HTTP
+          if ($code -ne 0) { Stop-Process -Id $good.Process.Id -Force; throw "update failed: $said" }
+          $deadline = (Get-Date).AddSeconds(240)
+          $restarted = $false
+          while ((Get-Date) -lt $deadline -and -not $restarted) {
+            Start-Sleep 3
+            $gone = -not (Get-ScheduledTask -TaskName 'Ovigyan Connector Update' -ErrorAction SilentlyContinue)
+            $now = Connector-Started
+            $restarted = $gone -and $now -and ($now -gt $before) -and ((Get-ScheduledTask -TaskName $task).State -eq 'Running')
+          }
+          Stop-Process -Id $good.Process.Id -Force
+          if (-not $restarted) { Get-Content "$home_\update.json" -ErrorAction SilentlyContinue; throw 'the update did not finish and restart the connector' }
+          $answer = $null
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not $answer -and (Get-Date) -lt $deadline) { try { $answer = Invoke-WebRequest 'http://127.0.0.1:47890/' -SkipHttpErrorCheck -TimeoutSec 5 } catch { Start-Sleep 2 } }
+          if (-not $answer -or $answer.StatusCode -ne 401) { throw 'the connector page did not come back after the update' }
+          if ((Get-Content "$home_\update.json" -Raw | ConvertFrom-Json).status -ne 'applying') { throw 'update.json does not record the update' }
           # Upgrade-in-place keeps working: run the installer again.
           $again = Run-Exe $setup ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/LOG=upgrade.log') 'reinstall'
           if ($again -ne 0) { Get-Content upgrade.log -Tail 60; throw "reinstall failed: $again" }

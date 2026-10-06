@@ -65,6 +65,9 @@ var
   Code: Integer;
   Home: string;
 begin
+  if CurStep = ssDone then
+    { An automatic update starts this setup from a one-off task; it has done its job. }
+    Exec('schtasks.exe', '/Delete /TN "Ovigyan Connector Update" /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
   if CurStep = ssPostInstall then
   begin
     Home := ExpandConstant('{commonappdata}\Ovigyan Connector');
