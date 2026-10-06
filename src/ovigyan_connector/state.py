@@ -50,6 +50,8 @@ class State:
     # 'unpaired' -> 'paired'; 'revoked' once the cloud refuses the credential (pair again with a new key).
     status: str = "unpaired"
     devices: list[LocalDevice] = field(default_factory=list)
+    # The school's look from its Ovigyan site: name, color, logo_url, logo_png (base64). Empty = Ovigyan defaults.
+    branding: dict = field(default_factory=dict)
 
     @property
     def paired(self) -> bool:

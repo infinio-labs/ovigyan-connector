@@ -13,6 +13,7 @@ import sys
 import threading
 from pathlib import Path
 
+from .branding import DEFAULT_NAME
 from .state import StateStore
 
 REFRESH_SECONDS = 10
@@ -25,33 +26,35 @@ def summarize(note: dict | None, now: float | None = None) -> tuple[str, str]:
     """(level, one-line text) for the icon colour and tooltip. `note` is status.json, or None when missing."""
     import time
 
+    brand = (note or {}).get("brand") or {}
+    name = brand.get("name") or DEFAULT_NAME
     if not note:
-        return "unknown", "Ovigyan Connector: not running"
+        return "unknown", f"{name}: not running"
     try:
         from datetime import datetime
 
         written = datetime.fromisoformat(str(note["at"]).replace("Z", "+00:00")).timestamp()
         if (now if now is not None else time.time()) - written > STALE_AFTER_SECONDS + int(note.get("poll_seconds", 60)):
-            return "bad", "Ovigyan Connector: stopped responding"
+            return "bad", f"{name}: stopped responding"
     except (KeyError, ValueError):
         pass
     state = note.get("connector")
     if state == "unpaired":
-        return "warn", "Ovigyan Connector: not connected yet. Open it to connect."
+        return "warn", f"{name}: not connected yet. Open it to connect."
     if state == "revoked":
-        return "bad", "Ovigyan Connector: disconnected by the school. Open it to reconnect."
+        return "bad", f"{name}: disconnected by the school. Open it to reconnect."
     if state == "offline":
-        return "warn", "Ovigyan Connector: offline, will retry"
+        return "warn", f"{name}: offline, will retry"
     devices = note.get("devices") or []
     trouble = [d for d in devices if d.get("state") == "unreachable"]
     waiting = [d for d in devices if d.get("state") == "pending"]
     if trouble:
-        return "bad", f"Ovigyan Connector: can't reach {len(trouble)} terminal{'s' if len(trouble) != 1 else ''}"
+        return "bad", f"{name}: can't reach {len(trouble)} terminal{'s' if len(trouble) != 1 else ''}"
     if waiting:
-        return "warn", f"Ovigyan Connector: {len(waiting)} terminal{'s' if len(waiting) != 1 else ''} waiting for approval"
+        return "warn", f"{name}: {len(waiting)} terminal{'s' if len(waiting) != 1 else ''} waiting for approval"
     if not devices:
-        return "warn", "Ovigyan Connector: connected, no terminals added yet"
-    return "ok", "Ovigyan Connector: working"
+        return "warn", f"{name}: connected, no terminals added yet"
+    return "ok", f"{name}: working"
 
 
 def read_note(store: StateStore) -> dict | None:
@@ -62,12 +65,26 @@ def read_note(store: StateStore) -> dict | None:
         return None
 
 
-def make_icon(level: str, size: int = 64):
+def make_icon(level: str, size: int = 64, logo_png: str | None = None):
+    """The status colour as a disc, or the school's logo with a small status dot in the corner."""
     from PIL import Image, ImageDraw
 
     image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    draw.ellipse((4, 4, size - 4, size - 4), fill=COLOURS.get(level, COLOURS["unknown"]) + (255,))
+    colour = COLOURS.get(level, COLOURS["unknown"]) + (255,)
+    if logo_png:
+        try:
+            import base64
+            import io
+
+            logo = Image.open(io.BytesIO(base64.b64decode(logo_png))).convert("RGBA").resize((size, size))
+            image.paste(logo, (0, 0), logo)
+            dot = size * 11 // 32
+            draw.ellipse((size - dot - 1, size - dot - 1, size - 1, size - 1), fill=colour, outline=(255, 255, 255, 255), width=max(2, size // 20))
+            return image
+        except (ValueError, OSError):
+            pass  # a bad logo falls back to the plain status disc
+    draw.ellipse((4, 4, size - 4, size - 4), fill=colour)
     inner = size // 4
     draw.ellipse((inner, inner, size - inner, size - inner), outline=(255, 255, 255, 255), width=max(3, size // 12))
     return image
@@ -88,17 +105,20 @@ def run_tray(store: StateStore | None = None, stop: threading.Event | None = Non
         return 1
     store = store or StateStore()
     stop = stop or threading.Event()
-    state = {"level": "unknown", "text": "Ovigyan Connector"}
+    state = {"level": "unknown", "text": DEFAULT_NAME, "logo": None, "name": DEFAULT_NAME}
 
     def refresh(icon) -> None:
-        level, text = summarize(read_note(store))
-        if (level, text) != (state["level"], state["text"]):
-            state.update(level=level, text=text)
-            icon.icon, icon.title = make_icon(level), text
+        note = read_note(store)
+        level, text = summarize(note)
+        brand = (note or {}).get("brand") or {}
+        logo = brand.get("logo_png")
+        if (level, text, logo) != (state["level"], state["text"], state["logo"]):
+            state.update(level=level, text=text, logo=logo, name=brand.get("name") or DEFAULT_NAME)
+            icon.icon, icon.title = make_icon(level, logo_png=logo), text
             icon.update_menu()
 
     menu = pystray.Menu(
-        pystray.MenuItem("Open Ovigyan Connector", lambda *_: open_page(), default=True),
+        pystray.MenuItem(lambda _item: "Open " + state["name"], lambda *_: open_page(), default=True),
         pystray.MenuItem(lambda _item: state["text"], None, enabled=False),
         pystray.MenuItem("Hide this icon", lambda icon, *_: icon.stop()),
     )

@@ -50,11 +50,13 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin
 #banner:not(:empty),#notice:not(:empty){margin-bottom:16px}
 #banner .msg,#notice .msg{margin-top:0}
 #devices{margin-top:4px}
+.brand{display:flex;align-items:center;gap:12px}
+#logo{width:36px;height:36px;object-fit:contain;border-radius:8px}
 </style>
 </head>
 <body>
 <main>
-  <header><h1>Ovigyan Connector</h1><span id="pill" class="pill"><span class="dot"></span><span id="pillText">Checking…</span></span></header>
+  <header><div class="brand"><img id="logo" alt="" hidden><div><h1 id="title">Ovigyan Connector</h1><div id="sub" class="muted tight" hidden>Attendance connector</div></div></div><span id="pill" class="pill"><span class="dot"></span><span id="pillText">Checking…</span></span></header>
   <div id="banner"></div>
   <div id="notice" role="status"></div>
   <section id="setup" class="card" hidden>
@@ -70,7 +72,7 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin
     </form>
   </section>
   <section id="devicesCard" class="card" hidden>
-    <div class="head"><div><h2>Attendance terminals</h2><p class="muted tight">Add each terminal on this network. An administrator approves it in Ovigyan.</p></div><button class="primary" id="addToggle" type="button">Add a terminal</button></div>
+    <div class="head"><div><h2>Attendance terminals</h2><p class="muted tight">Add each terminal on this network. An administrator approves it in <span class="prod">Ovigyan</span>.</p></div><button class="primary" id="addToggle" type="button">Add a terminal</button></div>
     <form id="addForm" hidden autocomplete="off">
       <label for="host">Terminal IP address</label>
       <input id="host" name="host" placeholder="192.168.1.50" required>
@@ -99,7 +101,22 @@ function msg(el, text, kind) { el.replaceChildren(); if (!text) return; const d 
 function show(el, on) { el.hidden = !on; }
 function pill(text, kind) { $("pillText").textContent = text; $("pill").className = "pill " + kind; }
 let adding = false;
+let product = "Ovigyan";
+function brand(b) {
+  b = b || {};
+  const name = b.name || "Ovigyan Connector";
+  product = b.name || "Ovigyan";
+  for (const el of document.querySelectorAll(".prod")) el.textContent = product;
+  $("title").textContent = name; document.title = name; show($("sub"), !!b.name);
+  const root = document.documentElement.style;
+  if (b.color) { root.setProperty("--accent", b.color); root.setProperty("--accent-text", b.text); }
+  else { root.removeProperty("--accent"); root.removeProperty("--accent-text"); }
+  const logo = $("logo");
+  if (b.logo) { const src = "/logo.png?v=" + b.logo; if (logo.getAttribute("src") !== src) logo.setAttribute("src", src); }
+  show(logo, !!b.logo);
+}
 function render(s) {
+  brand(s.brand);
   const last = s.lastCycle || {};
   const byId = Object.fromEntries((last.devices || []).map((d) => [d.id, d]));
   const connected = s.paired;
@@ -142,7 +159,7 @@ $("addForm").addEventListener("submit", async (ev) => {
   try {
     const r = await api("/api/devices", "POST", {host: $("host").value, port: $("port").value, password: $("password").value});
     $("host").value = ""; toggleAdd(false);
-    msg($("notice"), (r.existing ? "Updated " : "Added ") + (r.device.model || "terminal") + " " + r.device.serial + ". An administrator now approves it in Ovigyan under Settings → Connectors.", "good");
+    msg($("notice"), (r.existing ? "Updated " : "Added ") + (r.device.model || "terminal") + " " + r.device.serial + ". An administrator now approves it in " + product + " under Settings → Connectors.", "good");
     await refresh();
   } catch (e) { msg($("addMsg"), e.message, "error"); } finally { $("addBtn").disabled = false; }
 });

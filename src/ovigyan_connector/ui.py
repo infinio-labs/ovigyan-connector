@@ -155,9 +155,16 @@ class _Handler(BaseHTTPRequestHandler):
                 )
             nonce = secrets.token_urlsafe(16)
             data = PAGE.replace("__NONCE__", nonce).encode()
-            csp = f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+            csp = f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
             self._headers(200, "text/html; charset=utf-8", len(data), {"content-security-policy": csp})
             self.wfile.write(data)
+            return
+        if url.path == "/logo.png":
+            logo = self.server.service.logo_png() if self._authed() else None
+            if logo is None:
+                return self._json(404, {"error": "Not found."})
+            self._headers(200, "image/png", len(logo), {"cache-control": "private, max-age=3600"})
+            self.wfile.write(logo)
             return
         if url.path == "/api/status":
             if self._guard(False):

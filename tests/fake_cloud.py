@@ -36,7 +36,7 @@ class _Handler(BaseHTTPRequestHandler):
             if key != PAIR_KEY or cloud.key_used:
                 return self._send(400, {"error": "That key is not valid."})
             cloud.key_used = True
-            return self._send(200, {"connectorId": "c1", "name": "Front office PC", "credential": CREDENTIAL, "pollSeconds": cloud.poll_seconds})
+            return self._send(200, {"connectorId": "c1", "name": "Front office PC", "credential": CREDENTIAL, "pollSeconds": cloud.poll_seconds, **cloud.brand_block()})
         if self.headers.get("authorization") != f"Bearer {CREDENTIAL}" or cloud.revoked:
             return self._send(401, {"error": "Unauthorized."})
         if self.path == "/api/connectors/config":
@@ -82,6 +82,7 @@ class FakeCloud(ThreadingHTTPServer):
         self.poll_seconds = 60
         self.force_status = 0
         self.force_error = "boom"
+        self.branding: dict | None = None  # None = an older site that sends no branding block
 
     def approve(self, serial: str, ignore_before: str | None = None, enabled: bool = True, timezone: str = "Asia/Kolkata") -> None:
         self.approved[serial] = {
@@ -98,7 +99,11 @@ class FakeCloud(ThreadingHTTPServer):
             "devices": list(self.approved.values()),
             "pending": [s for s in self.reported if self.state_of(s) == "pending"],
             "rejected": sorted(self.rejected),
+            **self.brand_block(),
         }
+
+    def brand_block(self) -> dict:
+        return {} if self.branding is None else {"branding": self.branding}
 
     def __enter__(self) -> "FakeCloud":
         threading.Thread(target=self.serve_forever, daemon=True).start()

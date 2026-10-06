@@ -14,6 +14,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 from . import __version__
+from .branding import parse_branding
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
@@ -63,6 +64,7 @@ class PairResult:
     name: str
     credential: str
     poll_seconds: int
+    branding: dict | None = None
 
 
 @dataclass
@@ -80,6 +82,7 @@ class CloudConfig:
     devices: dict[str, ConfigDevice] = field(default_factory=dict)
     pending: set[str] = field(default_factory=set)
     rejected: set[str] = field(default_factory=set)
+    branding: dict | None = None  # None: the site did not send a block at all
 
 
 def _parse_instant(value: object) -> datetime | None:
@@ -177,6 +180,7 @@ class CloudClient:
                 name=str(result["name"]),
                 credential=str(result["credential"]),
                 poll_seconds=int(result.get("pollSeconds", 60)),
+                branding=parse_branding(result["branding"]) if "branding" in result else None,
             )
         except (KeyError, TypeError, ValueError):
             raise CloudError("bad_response", "The server sent an unexpected answer.") from None
@@ -210,4 +214,5 @@ class CloudClient:
             devices=devices,
             pending={str(value) for value in result.get("pending", [])},
             rejected={str(value) for value in result.get("rejected", [])},
+            branding=parse_branding(result["branding"]) if "branding" in result else None,
         )

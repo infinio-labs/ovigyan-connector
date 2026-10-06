@@ -4,6 +4,8 @@ A local page, a tray icon and the command line all drive this same object, so wh
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import sys
@@ -17,6 +19,7 @@ from typing import Callable
 from . import __version__
 from .adapters import EsslX2008Adapter
 from .delivery import deliver
+from .branding import contrast_text, fetch_logo
 from .cloud import CloudClient, CloudConfig, CloudError, normalize_server_url
 from .devices import DeviceInfo, ProbeError, probe, validate_address
 from .events import EventEnvelope
@@ -73,11 +76,13 @@ class ConnectorService:
         http_retries: int = 2,
         retry_backoff_seconds: float = 1.0,
         probe_timeout: int | None = None,
+        logo_fetcher: Callable[[str], str | None] = fetch_logo,
     ):
         self.store = store or StateStore()
         self.client_factory = client_factory
         self.prober = prober
         self.reader = reader
+        self.logo_fetcher = logo_fetcher
         self.http_retries = http_retries
         self.retry_backoff_seconds = retry_backoff_seconds
         # How long to wait for a terminal when adding it. Windows takes a few seconds to give up on a closed port.
@@ -112,6 +117,7 @@ class ConnectorService:
         state.connector_id = result.connector_id
         state.connector_name = result.name
         state.status = "paired"
+        self._apply_branding(state, result.branding or {})
         self.store.save(state)
         return state
 
@@ -123,6 +129,7 @@ class ConnectorService:
         """Forget the credential (terminals stay listed). The school can also revoke it from the web."""
         state = self.store.load()
         state.credential, state.connector_id, state.connector_name, state.status = None, None, None, "unpaired"
+        state.branding = {}
         self.store.save(state)
         return state
 
@@ -213,8 +220,44 @@ class ConnectorService:
             return self._finish(
                 CycleReport(_utc_now(), "offline", error.message, 60, [self._status(d, UNKNOWN, "Waiting for the connection.") for d in state.devices])
             )
+        self._adopt_branding(config.branding)
         devices = [self._poll(state, client, device, config) for device in state.devices]
         return self._finish(CycleReport(_utc_now(), "ok", "Connected.", config.poll_seconds, devices))
+
+    def _apply_branding(self, state: State, branding: dict) -> bool:
+        """Adopt the school's look (an empty block means the site sets none, so the defaults return).
+        The logo is downloaded only when its address changes, or when an earlier download failed."""
+        old = state.branding
+        new = {key: branding[key] for key in ("name", "color", "logo_url") if key in branding}
+        logo = old.get("logo_png") if old.get("logo_url") == new.get("logo_url") else None
+        if new.get("logo_url") and not logo:
+            logo = self.logo_fetcher(new["logo_url"])
+        if logo:
+            new["logo_png"] = logo
+        state.branding = new
+        return new != old
+
+    def _adopt_branding(self, branding: dict | None) -> None:
+        if branding is None:  # an older site that sends none: leave whatever is stored
+            return
+        with self._lock:
+            state = self.store.load()
+            if self._apply_branding(state, branding):
+                self.store.save(state)
+
+    def logo_png(self) -> bytes | None:
+        encoded = self.store.load().branding.get("logo_png")
+        return base64.b64decode(encoded) if encoded else None
+
+    @staticmethod
+    def _brand_summary(branding: dict) -> dict:
+        logo = branding.get("logo_png")
+        return {
+            "name": branding.get("name"),
+            "color": branding.get("color"),
+            "text": contrast_text(branding["color"]) if branding.get("color") else None,
+            "logo": hashlib.sha1(logo.encode()).hexdigest()[:10] if logo else None,
+        }
 
     def _status(self, device: LocalDevice, state: str, message: str, **extra: int) -> DeviceStatus:
         return DeviceStatus(device.id, device.host, device.port, device.serial, device.model, state, message, **extra)
@@ -273,7 +316,12 @@ class ConnectorService:
         """Leave a note for whatever is showing the status; it holds nothing secret."""
         try:
             self.store.home.mkdir(parents=True, exist_ok=True)
-            payload = {"version": __version__, **asdict(report)}
+            brand = self.store.load().branding
+            payload = {
+                "version": __version__,
+                **asdict(report),
+                "brand": {k: brand.get(k) for k in ("name", "color", "logo_png")},
+            }
             self.store.status_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except OSError:
             pass
@@ -285,7 +333,8 @@ class ConnectorService:
         last = None
         try:
             last = json.loads(self.store.status_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            last.pop("brand", None)  # for the tray; the page gets a summary and loads the logo itself
+        except (OSError, ValueError, AttributeError):
             pass
         return {
             "version": __version__,
@@ -293,6 +342,7 @@ class ConnectorService:
             "status": state.status,
             "server": state.server,
             "connectorName": state.connector_name,
+            "brand": self._brand_summary(state.branding),
             "devices": [
                 {"id": d.id, "host": d.host, "port": d.port, "serial": d.serial, "model": d.model, "firmware": d.firmware}
                 for d in state.devices
