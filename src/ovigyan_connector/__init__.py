@@ -1,7 +1,5 @@
 """Ovigyan edge connector runtime."""
-from importlib import metadata as _metadata
 
-try:
-    __version__ = _metadata.version("ovigyan-connector")
-except _metadata.PackageNotFoundError:  # running from a source checkout that is not installed
-    __version__ = "0.0.0"
+# A literal, not importlib.metadata: a PyInstaller executable carries no package metadata and would report 0.0.0.
+# tests/test_version.py keeps this equal to pyproject.toml.
+__version__ = "0.1.0"

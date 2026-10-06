@@ -146,8 +146,9 @@ jobs:
           $statusAcl = (Get-Acl "$home_\status.json").Access | ForEach-Object { $_.IdentityReference.Value }
           if (-not ($statusAcl -match 'Users')) { throw 'status.json is not readable by users' }
           # The command line sees the same state.
-          $out = & $exe status
+          $out = (& $exe status) -join "`n"
           if ($out -notmatch 'Not paired') { throw "status said: $out" }
+          if ($out -match 'connector 0\.0\.0') { throw "the executable does not know its version: $out" }
           # Upgrade-in-place keeps working: run the installer again.
           $again = Run-Exe $setup ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/LOG=upgrade.log') 'reinstall'
           if ($again -ne 0) { Get-Content upgrade.log -Tail 60; throw "reinstall failed: $again" }
