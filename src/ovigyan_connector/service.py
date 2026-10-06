@@ -78,10 +78,26 @@ class ConnectorService:
         self.reader = reader
         self.http_retries = http_retries
         self.retry_backoff_seconds = retry_backoff_seconds
+        # The loop and a page can both change the saved state, so changes are serialised.
+        self._lock = threading.RLock()
+        self._wake: threading.Event | None = None
+
+    def enable_wake(self) -> None:
+        """Let `request_cycle` cut the pause short (used when a page is attached)."""
+        self._wake = threading.Event()
+
+    def request_cycle(self) -> None:
+        """Run the next cycle now instead of at the next interval, for example after pairing."""
+        if self._wake:
+            self._wake.set()
 
     # ── setup ──────────────────────────────────────────────────────────────────────────────────────
 
     def pair(self, server: str, key: str) -> State:
+        with self._lock:
+            return self._pair(server, key)
+
+    def _pair(self, server: str, key: str) -> State:
         """Swap the connection key from Settings > Connectors for this connector's own credential."""
         origin = normalize_server_url(server)
         client = self.client_factory(origin, max_retries=self.http_retries, retry_backoff_seconds=self.retry_backoff_seconds)
@@ -96,6 +112,10 @@ class ConnectorService:
         return state
 
     def unpair(self) -> State:
+        with self._lock:
+            return self._unpair()
+
+    def _unpair(self) -> State:
         """Forget the credential (terminals stay listed). The school can also revoke it from the web."""
         state = self.store.load()
         state.credential, state.connector_id, state.connector_name, state.status = None, None, None, "unpaired"
@@ -103,6 +123,10 @@ class ConnectorService:
         return state
 
     def add_device(self, host: str, port: int = 4370, password: int = 0) -> tuple[LocalDevice, bool]:
+        with self._lock:
+            return self._add_device(host, port, password)
+
+    def _add_device(self, host: str, port: int = 4370, password: int = 0) -> tuple[LocalDevice, bool]:
         """Check a terminal is reachable, remember it, and tell the cloud. Returns (device, already_known)."""
         host, port = validate_address(host, port)
         info = self.prober(host, port, password)
@@ -124,6 +148,10 @@ class ConnectorService:
         return device, existing is not None
 
     def remove_device(self, device_id: str) -> bool:
+        with self._lock:
+            return self._remove_device(device_id)
+
+    def _remove_device(self, device_id: str) -> bool:
         state = self.store.load()
         kept = [d for d in state.devices if d.id != device_id]
         if len(kept) == len(state.devices):
@@ -150,7 +178,8 @@ class ConnectorService:
         ]
 
     def run_cycle(self) -> CycleReport:
-        state = self.store.load()
+        with self._lock:
+            state = self.store.load()
         if not state.paired:
             revoked = state.status == "revoked"
             return self._finish(
@@ -170,8 +199,10 @@ class ConnectorService:
             client.report_devices(self._report_payload(state.devices))
         except CloudError as error:
             if error.kind == "unauthorized":
-                state.status = "revoked"
-                self.store.save(state)
+                with self._lock:
+                    state = self.store.load()
+                    state.status = "revoked"
+                    self.store.save(state)
                 return self._finish(
                     CycleReport(_utc_now(), "revoked", error.message, 60, [self._status(d, UNKNOWN, error.message) for d in state.devices])
                 )
@@ -284,4 +315,14 @@ class ConnectorService:
                 print(f"ovigyan-connector: {error}", file=sys.stderr)
             if failures:
                 wait = min(300.0, wait * (2 ** min(failures, 3)))
-            stop.wait(wait if fixed_wait is None else fixed_wait)
+            self._pause(stop, wait if fixed_wait is None else fixed_wait)
+
+    def _pause(self, stop, seconds: float) -> None:
+        if self._wake is None:
+            stop.wait(seconds)
+            return
+        # With a page attached, wake early when it asks for a cycle; check for stop in short slices.
+        self._wake.clear()
+        end = time.monotonic() + seconds
+        while not stop.is_set() and not self._wake.is_set() and time.monotonic() < end:
+            stop.wait(min(0.25, max(0.0, end - time.monotonic())))

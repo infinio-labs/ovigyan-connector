@@ -24,6 +24,10 @@ ovigyan-connector add-device --host 192.168.1.50            # --port 4370 --pass
 ovigyan-connector run                                       # or: run --once
 ```
 
+`ovigyan-connector run` also serves a small page on this PC only (`http://127.0.0.1:47890`, change with
+`--ui-port`) where you connect, add terminals and see their status. Run `ovigyan-connector open` to open it in the
+browser; the link carries a secret, so other users and web pages cannot use it. `--no-ui` turns it off.
+
 Other commands: `devices`, `status`, `remove-device <id>`, `unpair`. Settings live in
 `C:\ProgramData\Ovigyan Connector` (Windows), `/var/lib/ovigyan-connector` (Linux, as root) or
 `~/.ovigyan-connector`; override with `OVIGYAN_CONNECTOR_HOME` or `--home`. The file holds the connection

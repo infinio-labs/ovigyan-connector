@@ -2,16 +2,24 @@
 from __future__ import annotations
 
 import argparse
+import os
 import signal
+import socket
 import sys
 import threading
+import webbrowser
 
 from .cloud import CloudError
 from .devices import ProbeError
 from .service import ConnectorService, CycleReport
 from .state import StateStore
+from .ui import DEFAULT_UI_PORT, UiServer, open_url, ui_token
 
-COMMANDS = {"pair", "unpair", "add-device", "devices", "remove-device", "status", "run"}
+
+def _ui_port(value: int | None) -> int:
+    return value or int(os.environ.get("OVIGYAN_CONNECTOR_UI_PORT", "0") or 0) or DEFAULT_UI_PORT
+
+COMMANDS = {"pair", "unpair", "add-device", "devices", "remove-device", "status", "run", "open"}
 
 _STATE_WORDS = {
     "ok": "working",
@@ -41,8 +49,13 @@ def _parser() -> argparse.ArgumentParser:
     remove = sub.add_parser("remove-device", help="remove a terminal from this PC")
     remove.add_argument("id", help="the terminal's id, from `devices`")
     sub.add_parser("status", help="show whether the connector is working")
-    run = sub.add_parser("run", help="poll the terminals and deliver punches (use --once for a single pass)")
+    run = sub.add_parser("run", help="poll the terminals and deliver punches, with the local page (use --once for a single pass)")
     run.add_argument("--once", action="store_true")
+    run.add_argument("--no-ui", action="store_true", help="do not serve the local page")
+    run.add_argument("--ui-port", type=int, help=f"port for the local page (default {DEFAULT_UI_PORT})")
+    opener = sub.add_parser("open", help="open the connector's page in your browser")
+    opener.add_argument("--ui-port", type=int)
+    opener.add_argument("--no-browser", action="store_true", help="only print the link")
     return parser
 
 
@@ -101,11 +114,39 @@ def run_command(argv: list[str], service: ConnectorService | None = None) -> int
                 _print_report(report)
                 return 0 if report.connector in {"ok"} else 1
             stop = threading.Event()
+            server = None
+            if not args.no_ui:
+                port = _ui_port(args.ui_port)
+                try:
+                    server = UiServer(service, port)
+                except OSError:
+                    print(f"Port {port} is already in use. Is the connector already running? Use --ui-port to pick another.", file=sys.stderr)
+                    return 1
+                service.enable_wake()
+                server.start()
+                print(f"Local page: {open_url(server.port, server.token)}", flush=True)
             for name in ("SIGINT", "SIGTERM"):
                 if hasattr(signal, name):
                     signal.signal(getattr(signal, name), lambda *_: stop.set())
-            print("Ovigyan connector running. Press Ctrl+C to stop.")
-            service.run_forever(stop)
+            print("Ovigyan connector running. Press Ctrl+C to stop.", flush=True)
+            try:
+                service.run_forever(stop)
+            finally:
+                if server:
+                    server.shutdown()
+                    server.server_close()
+        elif args.command == "open":
+            port = _ui_port(args.ui_port)
+            url = open_url(port, ui_token(service))
+            with socket.socket() as probe:
+                probe.settimeout(1)
+                running = probe.connect_ex(("127.0.0.1", port)) == 0
+            if not running:
+                print("The connector is not running. Start it with:  ovigyan-connector run", file=sys.stderr)
+            print(url)
+            if running and not args.no_browser:
+                webbrowser.open(url)
+            return 0 if running else 1
         return 0
     except (CloudError, ProbeError) as error:
         print(error.message, file=sys.stderr)
