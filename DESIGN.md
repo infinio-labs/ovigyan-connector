@@ -5,6 +5,11 @@
 Phase 1 implementation: eSSL X2008/ZK-compatible TCP pull adapter, signed
 HTTPS delivery, durable local outbox, and cross-platform test matrix.
 
+Paired mode: the connector pairs once with a one-time key from Ovigyan, receives its own credential,
+reports the terminals added on its PC, and polls only those an administrator approved, with configuration
+(interval, per-terminal start date) taken from the cloud. `state.py`, `cloud.py`, `devices.py` and
+`service.py` hold this with no user interface, so a local page, tray icon and CLI can share one core.
+
 ## Responsibilities
 
 The connector is a deep edge module with a deliberately small interface:
