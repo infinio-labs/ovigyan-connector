@@ -1,0 +1,24 @@
+[Unit]
+Description=Ovigyan attendance connector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ovigyan-connector
+Group=ovigyan-connector
+StateDirectory=ovigyan-connector
+WorkingDirectory=/var/lib/ovigyan-connector
+EnvironmentFile=/etc/ovigyan-connector.env
+Environment=ATTENDANCE_OUTBOX_PATH=/var/lib/ovigyan-connector/outbox.db
+ExecStart=/usr/local/bin/ovigyan-connector
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ovigyan-connector
+
+[Install]
+WantedBy=multi-user.target

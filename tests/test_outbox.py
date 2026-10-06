@@ -1,4 +1,4 @@
-from ides_device_connector.outbox import Outbox
+from ovigyan_connector.outbox import Outbox
 
 
 def test_outbox_is_idempotent_and_acknowledgeable(tmp_path):

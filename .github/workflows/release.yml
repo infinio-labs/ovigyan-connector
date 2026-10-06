@@ -50,7 +50,7 @@ jobs:
           python -m pip install -e . pyinstaller==6.16.0
           pyinstaller --clean --noconfirm --onefile \
             --collect-submodules zk \
-            --name ides-device-connector launcher.py
+            --name ovigyan-connector launcher.py
 
       - name: Install Inno Setup
         if: matrix.artifact == 'windows'
@@ -59,7 +59,7 @@ jobs:
       - name: Sign connector executable
         if: matrix.artifact == 'windows' && env.SIGN_CERT != ''
         shell: pwsh
-        run: ./packaging/windows/sign.ps1 -Path dist\ides-device-connector.exe
+        run: ./packaging/windows/sign.ps1 -Path dist\ovigyan-connector.exe
 
       - name: Build Windows installer
         if: matrix.artifact == 'windows'
@@ -73,7 +73,7 @@ jobs:
         if: matrix.artifact == 'windows' && env.SIGN_CERT != ''
         shell: pwsh
         run: |
-          Get-ChildItem dist\ides-device-connector-setup-*.exe | ForEach-Object { ./packaging/windows/sign.ps1 -Path $_.FullName }
+          Get-ChildItem dist\ovigyan-connector-setup-*.exe | ForEach-Object { ./packaging/windows/sign.ps1 -Path $_.FullName }
 
       - name: Warn when unsigned
         if: matrix.artifact == 'windows' && env.SIGN_CERT == ''
@@ -89,7 +89,7 @@ jobs:
           import os
           from pathlib import Path
 
-          files = sorted(Path('dist').glob('ides-device-connector*'))
+          files = sorted(Path('dist').glob('ovigyan-connector*'))
           if not files:
               raise SystemExit('no connector artifact was produced')
           manifest = []
@@ -102,7 +102,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ides-device-connector-${{ matrix.artifact }}-${{ github.ref_name }}
+          name: ovigyan-connector-${{ matrix.artifact }}-${{ github.ref_name }}
           path: dist/
           if-no-files-found: error
           retention-days: 30

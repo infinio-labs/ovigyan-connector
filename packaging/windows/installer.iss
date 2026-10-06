@@ -1,25 +1,25 @@
-; IDeS Device Connector - Windows installer (Inno Setup 6).
-; Build:  iscc /DAppVersion=1.2.3 packaging\windows\installer.iss     (needs dist\ides-device-connector.exe)
+; Ovigyan Connector - Windows installer (Inno Setup 6).
+; Build:  iscc /DAppVersion=1.2.3 packaging\windows\installer.iss     (needs dist\ovigyan-connector.exe)
 ; Silent: setup.exe /VERYSILENT /DEVICE_HOST=192.168.1.50 /MACHINE_ID=NFZ824090078 ^
-;                   /INGEST_URL=https://school.example.com/api/attendance/device-events /TOKEN=ides_dev_...
+;                   /INGEST_URL=https://school.example.com/api/attendance/device-events /TOKEN=ovigyan_dev_...
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
-#define AppName "IDeS Device Connector"
-#define TaskName "IDeS Attendance Device Connector"
+#define AppName "Ovigyan Connector"
+#define TaskName "Ovigyan Attendance Connector"
 
 [Setup]
 AppId={{B7E6C2A4-5C1B-4B0E-9E3A-1D5A7C6F2A10}
 AppName={#AppName}
 AppVersion={#AppVersion}
-AppPublisher=IDeS
-DefaultDirName={autopf}\IDeS Device Connector
+AppPublisher=Ovigyan
+DefaultDirName={autopf}\Ovigyan Connector
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\..\dist
-OutputBaseFilename=ides-device-connector-setup-{#AppVersion}
+OutputBaseFilename=ovigyan-connector-setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -28,13 +28,13 @@ SetupLogging=yes
 UninstallDisplayName={#AppName}
 
 [Files]
-Source: "..\..\dist\ides-device-connector.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\ovigyan-connector.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "run-connector.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "register-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "unregister-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
-Name: "{commonappdata}\IDeS Device Connector"
+Name: "{commonappdata}\Ovigyan Connector"
 
 [UninstallRun]
 Filename: "cmd.exe"; Parameters: "/C set PSModulePath=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\unregister-task.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveTask"
@@ -45,7 +45,7 @@ var
 
 function ConfigPath: string;
 begin
-  Result := ExpandConstant('{commonappdata}\IDeS Device Connector\connector.env');
+  Result := ExpandConstant('{commonappdata}\Ovigyan Connector\connector.env');
 end;
 
 { /NAME=value from the command line (silent roll-outs), or '' }
@@ -90,13 +90,13 @@ end;
 
 procedure InitializeWizard;
 begin
-  SettingsPage := CreateInputQueryPage(wpSelectDir, 'Terminal and IDeS settings',
-    'Connect this PC to the attendance terminal and to IDeS.',
-    'Find the Machine ID and token in IDeS under Academics > Attendance > Setup > Access Devices.');
+  SettingsPage := CreateInputQueryPage(wpSelectDir, 'Terminal and Ovigyan settings',
+    'Connect this PC to the attendance terminal and to Ovigyan.',
+    'Find the Machine ID and token in Ovigyan under Academics > Attendance > Setup > Access Devices.');
   SettingsPage.Add('Terminal IP address:', False);
-  SettingsPage.Add('Machine ID (terminal serial number, as entered in IDeS):', False);
-  SettingsPage.Add('IDeS ingest URL (https://.../api/attendance/device-events):', False);
-  SettingsPage.Add('Connector token (ides_dev_...):', True);
+  SettingsPage.Add('Machine ID (terminal serial number, as entered in Ovigyan):', False);
+  SettingsPage.Add('Ovigyan ingest URL (https://.../api/attendance/device-events):', False);
+  SettingsPage.Add('Connector token (ovigyan_dev_...):', True);
   SettingsPage.Values[0] := Pick('DEVICE_HOST', 'ATTENDANCE_DEVICE_HOST');
   SettingsPage.Values[1] := Pick('MACHINE_ID', 'ATTENDANCE_MACHINE_ID');
   SettingsPage.Values[2] := Pick('INGEST_URL', 'ATTENDANCE_INGEST_URL');
@@ -112,9 +112,9 @@ begin
   if (Trim(SettingsPage.Values[0]) = '') or (Trim(SettingsPage.Values[1]) = '') then
     Result := 'Terminal IP address and Machine ID are required.'
   else if Copy(Url, 1, 8) <> 'https://' then
-    Result := 'The IDeS ingest URL must start with https://'
-  else if Copy(Trim(SettingsPage.Values[3]), 1, 9) <> 'ides_dev_' then
-    Result := 'The connector token must start with ides_dev_ (issue one in IDeS).'
+    Result := 'The Ovigyan ingest URL must start with https://'
+  else if Copy(Trim(SettingsPage.Values[3]), 1, 12) <> 'ovigyan_dev_' then
+    Result := 'The connector token must start with ovigyan_dev_ (issue one in Ovigyan).'
   else if (Pos(#13, Url) > 0) or (Pos(#10, Url) > 0) then
     Result := 'The ingest URL must be a single line.';
 end;
@@ -158,16 +158,16 @@ begin
       'ATTENDANCE_MACHINE_ID=' + Trim(SettingsPage.Values[1]) + #13#10 +
       'ATTENDANCE_INGEST_URL=' + Trim(SettingsPage.Values[2]) + #13#10 +
       'ATTENDANCE_DEVICE_TOKEN=' + Trim(SettingsPage.Values[3]) + #13#10 +
-      'ATTENDANCE_OUTBOX_PATH=' + ExpandConstant('{commonappdata}\IDeS Device Connector\outbox.db') + #13#10;
+      'ATTENDANCE_OUTBOX_PATH=' + ExpandConstant('{commonappdata}\Ovigyan Connector\outbox.db') + #13#10;
     { register-task.ps1 restricts this file to SYSTEM and Administrators right after this. }
     if not SaveStringToFile(ConfigPath, Text, False) then
       RaiseException('Could not write ' + ConfigPath);
     { Clear PSModulePath: a PowerShell 7 parent leaks its module path and breaks Windows PowerShell's Get-Acl. }
     if not Exec('cmd.exe',
       '/C set PSModulePath=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\register-task.ps1') + '"' +
-      ' -ExecutablePath "' + ExpandConstant('{app}\ides-device-connector.exe') + '"' +
+      ' -ExecutablePath "' + ExpandConstant('{app}\ovigyan-connector.exe') + '"' +
       ' -ConfigPath "' + ConfigPath + '"' +
-      ' -LogPath "' + ExpandConstant('{commonappdata}\IDeS Device Connector\connector.log') + '" -StartNow',
+      ' -LogPath "' + ExpandConstant('{commonappdata}\Ovigyan Connector\connector.log') + '" -StartNow',
       '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
       RaiseException('Registering the background task failed (exit code ' + IntToStr(Code) + '). See the setup log.');
   end;

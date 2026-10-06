@@ -79,7 +79,7 @@ jobs:
         run: >-
           pyinstaller --clean --noconfirm --onefile
           --collect-submodules zk
-          --name ides-device-connector launcher.py
+          --name ovigyan-connector launcher.py
       - name: Install Inno Setup
         if: matrix.name == 'windows'
         run: choco install innosetup -y --no-progress
@@ -95,9 +95,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $setup = (Get-ChildItem dist\ides-device-connector-setup-*.exe).FullName
-          $cfg = "$env:ProgramData\IDeS Device Connector\connector.env"
-          $task = 'IDeS Attendance Device Connector'
+          $setup = (Get-ChildItem dist\ovigyan-connector-setup-*.exe).FullName
+          $cfg = "$env:ProgramData\Ovigyan Connector\connector.env"
+          $task = 'Ovigyan Attendance Connector'
           function Run-Exe($file, $arguments, $label) {
             Write-Host "== $label"
             $p = Start-Process $file -PassThru -ArgumentList $arguments
@@ -105,7 +105,7 @@ jobs:
             Write-Host "== $label exit code $($p.ExitCode)"
             return $p.ExitCode
           }
-          $common = '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/DEVICE_HOST=192.0.2.1', '/MACHINE_ID=CI-1', '/TOKEN=ides_dev_ci'
+          $common = '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/DEVICE_HOST=192.0.2.1', '/MACHINE_ID=CI-1', '/TOKEN=ovigyan_dev_ci'
           $badCode = Run-Exe $setup ($common + '/INGEST_URL=http://example.invalid/x', '/LOG=bad.log') 'install with http URL (must fail)'
           if ($badCode -eq 0) { throw 'installer accepted a non-HTTPS ingest URL' }
           $okCode = Run-Exe $setup ($common + '/INGEST_URL=https://example.invalid/api/attendance/device-events', '/LOG=install.log') 'install'
@@ -115,15 +115,15 @@ jobs:
           $who = (Get-Acl $cfg).Access | ForEach-Object { $_.IdentityReference.Value }
           $extra = $who | Where-Object { $_ -notmatch 'SYSTEM|Administrators' }
           if ($extra) { throw "config readable by: $extra" }
-          $unCode = Run-Exe "$env:ProgramFiles\IDeS Device Connector\unins000.exe" ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'uninstall'
+          $unCode = Run-Exe "$env:ProgramFiles\Ovigyan Connector\unins000.exe" ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'uninstall'
           if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'task not removed on uninstall' }
       - name: Installer logs
         if: failure() && matrix.name == 'windows'
         shell: pwsh
         run: |
-          Get-ChildItem "$env:ProgramData\IDeS Device Connector\*.txt" -ErrorAction SilentlyContinue | ForEach-Object { "--- $_"; Get-Content $_ }
+          Get-ChildItem "$env:ProgramData\Ovigyan Connector\*.txt" -ErrorAction SilentlyContinue | ForEach-Object { "--- $_"; Get-Content $_ }
           Get-ChildItem *.log | ForEach-Object { "--- $_"; Get-Content $_ | Select-String -Pattern 'Exception|rror|exit code|register|Running|Process|Start' | Select-Object -Last 40 }
       - uses: actions/upload-artifact@v4
         with:
-          name: ides-device-connector-${{ matrix.name }}
-          path: dist/ides-device-connector*
+          name: ovigyan-connector-${{ matrix.name }}
+          path: dist/ovigyan-connector*

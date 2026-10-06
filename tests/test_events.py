@@ -1,7 +1,7 @@
 from datetime import datetime
 from types import SimpleNamespace
 
-from ides_device_connector.events import from_zk_row
+from ovigyan_connector.events import from_zk_row
 
 
 def test_x2008_row_preserves_unknown_punch_and_converts_device_timezone():
@@ -31,7 +31,7 @@ def test_same_user_slot_uid_does_not_collide_across_punches():
 
 
 def test_break_and_overtime_punches_are_not_guessed_into_in_or_out():
-    from ides_device_connector.events import from_zk_row
+    from ovigyan_connector.events import from_zk_row
 
     directions = {
         punch: from_zk_row(

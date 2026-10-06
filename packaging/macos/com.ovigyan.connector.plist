@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.ides.device-connector</string>
+    <string>com.ovigyan.connector</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/ides-device-connector</string>
+        <string>/usr/local/bin/ovigyan-connector</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
         <key>ATTENDANCE_OUTBOX_PATH</key>
-        <string>/Users/REPLACE_WITH_ACCOUNT/Library/Application Support/IDeS Attendance/outbox.db</string>
+        <string>/Users/REPLACE_WITH_ACCOUNT/Library/Application Support/Ovigyan Attendance/outbox.db</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -20,8 +20,8 @@
     <key>ProcessType</key>
     <string>Background</string>
     <key>StandardOutPath</key>
-    <string>/Users/REPLACE_WITH_ACCOUNT/Library/Logs/IDeS Attendance/connector.log</string>
+    <string>/Users/REPLACE_WITH_ACCOUNT/Library/Logs/Ovigyan Attendance/connector.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/REPLACE_WITH_ACCOUNT/Library/Logs/IDeS Attendance/connector.error.log</string>
+    <string>/Users/REPLACE_WITH_ACCOUNT/Library/Logs/Ovigyan Attendance/connector.error.log</string>
 </dict>
 </plist>

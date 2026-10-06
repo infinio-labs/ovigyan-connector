@@ -3,14 +3,14 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ides-device-connector"
+name = "ovigyan-connector"
 version = "0.1.0"
-description = "Cross-platform edge connector for IDeS attendance devices"
+description = "Cross-platform edge connector for Ovigyan attendance devices"
 requires-python = ">=3.10"
 dependencies = ["pyzk==0.9", "tzdata==2025.2"]
 
 [project.scripts]
-ides-device-connector = "ides_device_connector.cli:main"
+ovigyan-connector = "ovigyan_connector.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
