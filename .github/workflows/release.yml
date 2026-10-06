@@ -48,9 +48,21 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e . pyinstaller==6.16.0
+          extra=""
+          if [ "${{ matrix.artifact }}" != "linux" ]; then
+            python -m pip install ".[tray]"
+            extra="--collect-submodules pystray"
+          fi
           pyinstaller --clean --noconfirm --onefile \
-            --collect-submodules zk \
+            --collect-submodules zk $extra \
             --name ovigyan-connector launcher.py
+
+      - name: Linux install kit
+        if: matrix.artifact == 'linux'
+        run: |
+          cp packaging/linux/install.sh dist/ovigyan-connector-install.sh
+          cp packaging/linux/uninstall.sh dist/ovigyan-connector-uninstall.sh
+          cp packaging/systemd/ovigyan-connector.service dist/ovigyan-connector.service
 
       - name: Install Inno Setup
         if: matrix.artifact == 'windows'
@@ -118,6 +130,35 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
+
+      # The installed connectors update themselves from this file: they trust a release only when its manifest is
+      # signed with the key whose public half is built into them (scripts/make-update-key.py sets that up).
+      - name: Sign the update manifest
+        env:
+          SIGNING_KEY: ${{ secrets.CONNECTOR_UPDATE_SIGNING_KEY }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo '::warning::CONNECTOR_UPDATE_SIGNING_KEY is not set; this release will NOT be offered to installed connectors.'
+            exit 0
+          fi
+          python -m pip install -q cryptography
+          python - <<'PY'
+          import base64, hashlib, json, os
+          from pathlib import Path
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+          files = {}
+          for path in sorted(Path('artifacts').rglob('*')):
+              if path.is_file() and not path.name.startswith('SHA256SUMS'):
+                  if path.name in files:
+                      raise SystemExit(f'duplicate artifact name: {path.name}')
+                  files[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+          manifest = json.dumps({'version': os.environ['RELEASE_TAG'].lstrip('v'), 'files': files}, sort_keys=True).encode()
+          key = Ed25519PrivateKey.from_private_bytes(base64.b64decode(os.environ['SIGNING_KEY'].strip()))
+          Path('artifacts/manifest.json').write_bytes(manifest)
+          Path('artifacts/manifest.json.sig').write_bytes(base64.b64encode(key.sign(manifest)))
+          PY
 
       - name: Publish executables and checksums
         env:

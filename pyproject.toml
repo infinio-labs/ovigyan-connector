@@ -7,7 +7,11 @@ name = "ovigyan-connector"
 version = "0.1.0"
 description = "Cross-platform edge connector for Ovigyan attendance devices"
 requires-python = ">=3.10"
-dependencies = ["pyzk==0.9", "tzdata==2025.2"]
+dependencies = ["pyzk==0.9", "tzdata==2025.2", "cryptography>=42"]
+
+[project.optional-dependencies]
+# The notification-area icon. Windows and macOS builds include it; Linux servers do not need it.
+tray = ["pystray==0.19.5", "Pillow>=10"]
 
 [project.scripts]
 ovigyan-connector = "ovigyan_connector.cli:main"

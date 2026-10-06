@@ -4,7 +4,10 @@ A local page, a tray icon and the command line all drive this same object, so wh
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import os
 import sys
 import threading
 import time
@@ -16,10 +19,12 @@ from typing import Callable
 from . import __version__
 from .adapters import EsslX2008Adapter
 from .delivery import deliver
+from .branding import contrast_text, fetch_logo
 from .cloud import CloudClient, CloudConfig, CloudError, normalize_server_url
 from .devices import DeviceInfo, ProbeError, probe, validate_address
 from .events import EventEnvelope
 from .outbox import Outbox
+from .updater import Outcome, Policy, Updater
 from .state import LocalDevice, State, StateStore
 from .transport import EventTransport
 
@@ -71,17 +76,42 @@ class ConnectorService:
         reader: Reader = read_terminal,
         http_retries: int = 2,
         retry_backoff_seconds: float = 1.0,
+        probe_timeout: int | None = None,
+        logo_fetcher: Callable[[str], str | None] = fetch_logo,
+        updater: Updater | None = None,
     ):
         self.store = store or StateStore()
         self.client_factory = client_factory
         self.prober = prober
         self.reader = reader
+        self.logo_fetcher = logo_fetcher
+        self.updater = updater or Updater(self.store.home)
+        self.policy: Policy | None = None  # what the site last asked for
+        self.restart_requested = False
         self.http_retries = http_retries
         self.retry_backoff_seconds = retry_backoff_seconds
+        # How long to wait for a terminal when adding it. Windows takes a few seconds to give up on a closed port.
+        self.probe_timeout = probe_timeout or int(os.environ.get("OVIGYAN_PROBE_TIMEOUT", "0") or 0) or 5
+        # The loop and a page can both change the saved state, so changes are serialised.
+        self._lock = threading.RLock()
+        self._wake: threading.Event | None = None
+
+    def enable_wake(self) -> None:
+        """Let `request_cycle` cut the pause short (used when a page is attached)."""
+        self._wake = threading.Event()
+
+    def request_cycle(self) -> None:
+        """Run the next cycle now instead of at the next interval, for example after pairing."""
+        if self._wake:
+            self._wake.set()
 
     # ── setup ──────────────────────────────────────────────────────────────────────────────────────
 
     def pair(self, server: str, key: str) -> State:
+        with self._lock:
+            return self._pair(server, key)
+
+    def _pair(self, server: str, key: str) -> State:
         """Swap the connection key from Settings > Connectors for this connector's own credential."""
         origin = normalize_server_url(server)
         client = self.client_factory(origin, max_retries=self.http_retries, retry_backoff_seconds=self.retry_backoff_seconds)
@@ -92,20 +122,30 @@ class ConnectorService:
         state.connector_id = result.connector_id
         state.connector_name = result.name
         state.status = "paired"
+        self._apply_branding(state, result.branding or {})
         self.store.save(state)
         return state
 
     def unpair(self) -> State:
+        with self._lock:
+            return self._unpair()
+
+    def _unpair(self) -> State:
         """Forget the credential (terminals stay listed). The school can also revoke it from the web."""
         state = self.store.load()
         state.credential, state.connector_id, state.connector_name, state.status = None, None, None, "unpaired"
+        state.branding = {}
         self.store.save(state)
         return state
 
     def add_device(self, host: str, port: int = 4370, password: int = 0) -> tuple[LocalDevice, bool]:
+        with self._lock:
+            return self._add_device(host, port, password)
+
+    def _add_device(self, host: str, port: int = 4370, password: int = 0) -> tuple[LocalDevice, bool]:
         """Check a terminal is reachable, remember it, and tell the cloud. Returns (device, already_known)."""
         host, port = validate_address(host, port)
-        info = self.prober(host, port, password)
+        info = self.prober(host, port, password, self.probe_timeout)
         state = self.store.load()
         existing = next((d for d in state.devices if d.serial == info.serial), None)
         if existing:
@@ -124,6 +164,10 @@ class ConnectorService:
         return device, existing is not None
 
     def remove_device(self, device_id: str) -> bool:
+        with self._lock:
+            return self._remove_device(device_id)
+
+    def _remove_device(self, device_id: str) -> bool:
         state = self.store.load()
         kept = [d for d in state.devices if d.id != device_id]
         if len(kept) == len(state.devices):
@@ -150,7 +194,8 @@ class ConnectorService:
         ]
 
     def run_cycle(self) -> CycleReport:
-        state = self.store.load()
+        with self._lock:
+            state = self.store.load()
         if not state.paired:
             revoked = state.status == "revoked"
             return self._finish(
@@ -170,16 +215,55 @@ class ConnectorService:
             client.report_devices(self._report_payload(state.devices))
         except CloudError as error:
             if error.kind == "unauthorized":
-                state.status = "revoked"
-                self.store.save(state)
+                with self._lock:
+                    state = self.store.load()
+                    state.status = "revoked"
+                    self.store.save(state)
                 return self._finish(
                     CycleReport(_utc_now(), "revoked", error.message, 60, [self._status(d, UNKNOWN, error.message) for d in state.devices])
                 )
             return self._finish(
                 CycleReport(_utc_now(), "offline", error.message, 60, [self._status(d, UNKNOWN, "Waiting for the connection.") for d in state.devices])
             )
+        self._adopt_branding(config.branding)
+        self.policy = config.update
         devices = [self._poll(state, client, device, config) for device in state.devices]
         return self._finish(CycleReport(_utc_now(), "ok", "Connected.", config.poll_seconds, devices))
+
+    def _apply_branding(self, state: State, branding: dict) -> bool:
+        """Adopt the school's look (an empty block means the site sets none, so the defaults return).
+        The logo is downloaded only when its address changes, or when an earlier download failed."""
+        old = state.branding
+        new = {key: branding[key] for key in ("name", "color", "logo_url") if key in branding}
+        logo = old.get("logo_png") if old.get("logo_url") == new.get("logo_url") else None
+        if new.get("logo_url") and not logo:
+            logo = self.logo_fetcher(new["logo_url"])
+        if logo:
+            new["logo_png"] = logo
+        state.branding = new
+        return new != old
+
+    def _adopt_branding(self, branding: dict | None) -> None:
+        if branding is None:  # an older site that sends none: leave whatever is stored
+            return
+        with self._lock:
+            state = self.store.load()
+            if self._apply_branding(state, branding):
+                self.store.save(state)
+
+    def logo_png(self) -> bytes | None:
+        encoded = self.store.load().branding.get("logo_png")
+        return base64.b64decode(encoded) if encoded else None
+
+    @staticmethod
+    def _brand_summary(branding: dict) -> dict:
+        logo = branding.get("logo_png")
+        return {
+            "name": branding.get("name"),
+            "color": branding.get("color"),
+            "text": contrast_text(branding["color"]) if branding.get("color") else None,
+            "logo": hashlib.sha1(logo.encode()).hexdigest()[:10] if logo else None,
+        }
 
     def _status(self, device: LocalDevice, state: str, message: str, **extra: int) -> DeviceStatus:
         return DeviceStatus(device.id, device.host, device.port, device.serial, device.model, state, message, **extra)
@@ -238,7 +322,12 @@ class ConnectorService:
         """Leave a note for whatever is showing the status; it holds nothing secret."""
         try:
             self.store.home.mkdir(parents=True, exist_ok=True)
-            payload = {"version": __version__, **asdict(report)}
+            brand = self.store.load().branding
+            payload = {
+                "version": __version__,
+                **asdict(report),
+                "brand": {k: brand.get(k) for k in ("name", "color", "logo_png")},
+            }
             self.store.status_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except OSError:
             pass
@@ -250,7 +339,8 @@ class ConnectorService:
         last = None
         try:
             last = json.loads(self.store.status_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            last.pop("brand", None)  # for the tray; the page gets a summary and loads the logo itself
+        except (OSError, ValueError, AttributeError):
             pass
         return {
             "version": __version__,
@@ -258,6 +348,8 @@ class ConnectorService:
             "status": state.status,
             "server": state.server,
             "connectorName": state.connector_name,
+            "brand": self._brand_summary(state.branding),
+            "update": self.updater.state(),
             "devices": [
                 {"id": d.id, "host": d.host, "port": d.port, "serial": d.serial, "model": d.model, "firmware": d.firmware}
                 for d in state.devices
@@ -279,9 +371,36 @@ class ConnectorService:
                 if report.connector in {"unpaired", "revoked"}:
                     wait = 15.0  # idle until someone pairs, but notice it quickly
                 failures = 0 if report.connector != "offline" else failures + 1
+                if self.check_update(report, stop):
+                    return
             except Exception as error:  # noqa: BLE001 - the service must outlive any single bad cycle
                 failures += 1
                 print(f"ovigyan-connector: {error}", file=sys.stderr)
             if failures:
                 wait = min(300.0, wait * (2 ** min(failures, 3)))
-            stop.wait(wait if fixed_wait is None else fixed_wait)
+            self._pause(stop, wait if fixed_wait is None else fixed_wait)
+
+    def check_update(self, report: CycleReport, stop: threading.Event | None = None) -> bool:
+        """After a cycle, move to the version the site wants when it is safe. True means: stop now, a restart follows."""
+        if report.connector != "ok" or not self.policy:
+            return False
+        idle = all(device.queued == 0 for device in report.devices)
+        outcome = self.updater.run(self.policy, idle=idle)
+        if outcome.status in {"restart", "failed"}:
+            print(f"ovigyan-connector: update: {outcome.message}", file=sys.stderr, flush=True)
+        if outcome.status == "restart":
+            self.restart_requested = True
+            if stop is not None:
+                stop.set()
+            return True
+        return False
+
+    def _pause(self, stop, seconds: float) -> None:
+        if self._wake is None:
+            stop.wait(seconds)
+            return
+        # With a page attached, wake early when it asks for a cycle; check for stop in short slices.
+        self._wake.clear()
+        end = time.monotonic() + seconds
+        while not stop.is_set() and not self._wake.is_set() and time.monotonic() < end:
+            stop.wait(min(0.25, max(0.0, end - time.monotonic())))
