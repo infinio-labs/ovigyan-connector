@@ -19,7 +19,7 @@ from .ui import DEFAULT_UI_PORT, UiServer, open_url, ui_token
 def _ui_port(value: int | None) -> int:
     return value or int(os.environ.get("OVIGYAN_CONNECTOR_UI_PORT", "0") or 0) or DEFAULT_UI_PORT
 
-COMMANDS = {"pair", "unpair", "add-device", "devices", "remove-device", "status", "run", "open"}
+COMMANDS = {"pair", "unpair", "add-device", "devices", "remove-device", "status", "run", "open", "tray"}
 
 _STATE_WORDS = {
     "ok": "working",
@@ -53,6 +53,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--once", action="store_true")
     run.add_argument("--no-ui", action="store_true", help="do not serve the local page")
     run.add_argument("--ui-port", type=int, help=f"port for the local page (default {DEFAULT_UI_PORT})")
+    sub.add_parser("tray", help="show a notification-area icon with the connector's status")
     opener = sub.add_parser("open", help="open the connector's page in your browser")
     opener.add_argument("--ui-port", type=int)
     opener.add_argument("--no-browser", action="store_true", help="only print the link")
@@ -135,6 +136,10 @@ def run_command(argv: list[str], service: ConnectorService | None = None) -> int
                 if server:
                     server.shutdown()
                     server.server_close()
+        elif args.command == "tray":
+            from .tray import run_tray
+
+            return run_tray(service.store)
         elif args.command == "open":
             port = _ui_port(args.ui_port)
             url = open_url(port, ui_token(service))

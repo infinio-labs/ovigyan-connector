@@ -8,10 +8,10 @@ Type=simple
 User=ovigyan-connector
 Group=ovigyan-connector
 StateDirectory=ovigyan-connector
+StateDirectoryMode=0700
 WorkingDirectory=/var/lib/ovigyan-connector
-EnvironmentFile=/etc/ovigyan-connector.env
-Environment=ATTENDANCE_OUTBOX_PATH=/var/lib/ovigyan-connector/outbox.db
-ExecStart=/usr/local/bin/ovigyan-connector
+Environment=OVIGYAN_CONNECTOR_HOME=/var/lib/ovigyan-connector
+ExecStart=/usr/local/bin/ovigyan-connector run
 Restart=always
 RestartSec=10
 NoNewPrivileges=true

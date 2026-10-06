@@ -77,11 +77,21 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install --upgrade pip
       - run: pip install -e . pyinstaller==6.16.0
+      - name: Add the notification-area icon (Windows and macOS builds)
+        if: matrix.name != 'linux'
+        run: pip install ".[tray]"
       - name: Build executable
-        run: >-
-          pyinstaller --clean --noconfirm --onefile
-          --collect-submodules zk
-          --name ovigyan-connector launcher.py
+        shell: bash
+        run: |
+          extra=""
+          if [ "${{ matrix.name }}" != "linux" ]; then extra="--collect-submodules pystray"; fi
+          pyinstaller --clean --noconfirm --onefile --collect-submodules zk $extra --name ovigyan-connector launcher.py
+      - name: Linux install kit
+        if: matrix.name == 'linux'
+        run: |
+          cp packaging/linux/install.sh dist/ovigyan-connector-install.sh
+          cp packaging/linux/uninstall.sh dist/ovigyan-connector-uninstall.sh
+          cp packaging/systemd/ovigyan-connector.service dist/ovigyan-connector.service
       - name: Install Inno Setup
         if: matrix.name == 'windows'
         run: choco install innosetup -y --no-progress
@@ -91,15 +101,16 @@ jobs:
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=0.0.0-ci packaging\windows\installer.iss
           if ($LASTEXITCODE -ne 0) { throw 'ISCC failed' }
-      - name: Smoke-test installer (silent install, task, config ACL, uninstall)
+      - name: Smoke-test installer (silent install, service, page, config ACL, uninstall)
         if: matrix.name == 'windows'
         timeout-minutes: 10
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = (Get-ChildItem dist\ovigyan-connector-setup-*.exe).FullName
-          $cfg = "$env:ProgramData\Ovigyan Connector\connector.env"
+          $home_ = "$env:ProgramData\Ovigyan Connector"
           $task = 'Ovigyan Attendance Connector'
+          $exe = "$env:ProgramFiles\Ovigyan Connector\ovigyan-connector.exe"
           function Run-Exe($file, $arguments, $label) {
             Write-Host "== $label"
             $p = Start-Process $file -PassThru -ArgumentList $arguments
@@ -107,18 +118,42 @@ jobs:
             Write-Host "== $label exit code $($p.ExitCode)"
             return $p.ExitCode
           }
-          $common = '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/DEVICE_HOST=192.0.2.1', '/MACHINE_ID=CI-1', '/TOKEN=ovigyan_dev_ci'
-          $badCode = Run-Exe $setup ($common + '/INGEST_URL=http://example.invalid/x', '/LOG=bad.log') 'install with http URL (must fail)'
-          if ($badCode -eq 0) { throw 'installer accepted a non-HTTPS ingest URL' }
-          $okCode = Run-Exe $setup ($common + '/INGEST_URL=https://example.invalid/api/attendance/device-events', '/LOG=install.log') 'install'
+          # Installing asks nothing: no terminal address, no token.
+          $okCode = Run-Exe $setup ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/LOG=install.log') 'install'
           if ($okCode -ne 0) { Get-Content install.log -Tail 60; throw "install failed: $okCode" }
-          Get-ScheduledTask -TaskName $task | Out-Null
-          if (-not (Select-String -Path $cfg -Pattern '^ATTENDANCE_MACHINE_ID=CI-1' -Quiet)) { throw 'config not written' }
-          $who = (Get-Acl $cfg).Access | ForEach-Object { $_.IdentityReference.Value }
+          $t = Get-ScheduledTask -TaskName $task
+          if ($t.Settings.ExecutionTimeLimit -ne 'PT0S') { throw "task has a time limit: $($t.Settings.ExecutionTimeLimit)" }
+          # The settings folder is for SYSTEM and administrators only.
+          $who = (Get-Acl $home_).Access | ForEach-Object { $_.IdentityReference.Value }
           $extra = $who | Where-Object { $_ -notmatch 'SYSTEM|Administrators' }
-          if ($extra) { throw "config readable by: $extra" }
+          if ($extra) { throw "settings folder readable by: $extra" }
+          # The background task is running and its page answers (401 without the secret link).
+          $deadline = (Get-Date).AddSeconds(90)
+          $answer = $null
+          while (-not $answer -and (Get-Date) -lt $deadline) {
+            try { $answer = Invoke-WebRequest 'http://127.0.0.1:47890/' -SkipHttpErrorCheck -TimeoutSec 5 } catch { Start-Sleep 2 }
+          }
+          if (-not $answer) { Get-Content "$home_\connector.log" -ErrorAction SilentlyContinue; throw 'the connector page never came up' }
+          if ($answer.StatusCode -ne 401) { throw "page answered $($answer.StatusCode) without the secret" }
+          # With the secret link the page loads (the same link the Start-menu shortcut uses).
+          $token = (Get-Content "$home_\ui-token" -Raw).Trim()
+          $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+          $page = Invoke-WebRequest "http://127.0.0.1:47890/?t=$token" -WebSession $session -TimeoutSec 10
+          if ($page.Content -notmatch 'Ovigyan Connector') { throw 'the page did not load' }
+          # Its status note says it has not been paired yet, and standard users can read that note but not the settings.
+          $note = Get-Content "$home_\status.json" -Raw | ConvertFrom-Json
+          if ($note.connector -ne 'unpaired') { throw "unexpected connector state: $($note.connector)" }
+          $statusAcl = (Get-Acl "$home_\status.json").Access | ForEach-Object { $_.IdentityReference.Value }
+          if (-not ($statusAcl -match 'Users')) { throw 'status.json is not readable by users' }
+          # The command line sees the same state.
+          $out = & $exe status
+          if ($out -notmatch 'Not paired') { throw "status said: $out" }
+          # Upgrade-in-place keeps working: run the installer again.
+          $again = Run-Exe $setup ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/LOG=upgrade.log') 'reinstall'
+          if ($again -ne 0) { Get-Content upgrade.log -Tail 60; throw "reinstall failed: $again" }
           $unCode = Run-Exe "$env:ProgramFiles\Ovigyan Connector\unins000.exe" ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'uninstall'
           if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'task not removed on uninstall' }
+          if (-not (Test-Path "$home_\ui-token")) { throw 'uninstall removed the settings folder (it must keep them)' }
       - name: Installer logs
         if: failure() && matrix.name == 'windows'
         shell: pwsh

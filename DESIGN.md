@@ -95,6 +95,10 @@ and notarization are enabled. Windows now ships an Inno Setup installer
 unsigned (with a CI warning) otherwise, so production use still requires them. Linux is a bare executable plus the
 systemd unit. Customers do not install Python manually.
 
+The Windows installer asks nothing: it registers a never-timing-out SYSTEM task running `ovigyan-connector run`, which
+serves the local page, and adds shortcuts to open it plus a status icon (`tray.py`, a separate per-user process that
+reads the secret-free `status.json`). The Linux kit is `install.sh` plus the systemd unit.
+
 ## Roadmap
 
 1. Validate X2008 against the client terminal.

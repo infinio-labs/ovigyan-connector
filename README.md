@@ -89,35 +89,49 @@ issues or rotates a device credential; store it in the connector's local
 service configuration. The cloud stores only its hash. The shared
 `ATTENDANCE_INGEST_SECRET` remains for migration of older installations.
 
-## Windows installer
+## Install on Windows
 
-Release builds publish `ovigyan-connector-setup-<version>.exe` (Inno Setup). Run it as an
-administrator on an always-on PC **in the terminal's network**. The wizard asks for the terminal IP,
-Machine ID, the Ovigyan ingest URL (HTTPS) and the connector token issued in Ovigyan, then:
+Release builds publish `ovigyan-connector-setup-<version>.exe` (Inno Setup). Run it as an administrator on an
+always-on PC **in the terminal's network**. It asks nothing. It installs the connector as a background task and, at
+the end, opens the connector's page, where you enter the Ovigyan web address and the connection key and add
+terminals (see "Paired mode").
 
 - installs to `C:\Program Files\Ovigyan Connector`;
-- writes `C:\ProgramData\Ovigyan Connector\connector.env` (readable only by SYSTEM and Administrators);
-- registers a boot-time scheduled task running as SYSTEM, restarts on failure, and starts it now;
-- logs to `C:\ProgramData\Ovigyan Connector\connector.log`; the undelivered-punch queue lives next to it.
+- registers a boot-time scheduled task running as SYSTEM that never times out and restarts if it stops;
+- adds an **Ovigyan Connector** Start-menu and desktop shortcut that opens the page, and a status icon in the
+  notification area for whoever signs in (green working, amber needs attention, red a problem);
+- settings, the credential and the terminals' passwords live in `C:\ProgramData\Ovigyan Connector`, readable only by
+  SYSTEM and Administrators. Two files in it are readable by standard users because the shortcut and the icon need
+  them and neither is a secret to the school's data: `ui-token` (only stops web pages and other programs from using the
+  page) and `status.json`. Anyone who can sign in to this PC can open the page, so use a PC only staff can sign in to.
+- logs to `connector.log` in that folder; each terminal's undelivered-punch queue is there too.
 
-Silent roll-out:
+Silent roll-out: `ovigyan-connector-setup-1.2.3.exe /VERYSILENT /SUPPRESSMSGBOXES`, then pair from the PC
+(`ovigyan-connector pair --server ... --key ...`) or open the page.
 
-```powershell
-.\ovigyan-connector-setup-1.2.3.exe /VERYSILENT /SUPPRESSMSGBOXES `
-  /DEVICE_HOST=192.168.1.50 /MACHINE_ID=NFZ824090078 `
-  /INGEST_URL=https://school.example.com/api/attendance/device-events /TOKEN=ovigyan_dev_...
+Re-running a newer installer upgrades in place and keeps everything. Uninstalling removes the program, the task and the
+icon but keeps the settings folder so no punch is lost; delete it by hand to remove it. CI builds the installer and
+smoke-tests, on `windows-latest`: install, the task (no time limit), the folder's permissions, the page answering with
+and without its secret link, the command line, reinstall, and uninstall.
+
+Signing: set repository secrets `WINDOWS_SIGN_CERT_BASE64` (PFX, base64) and `WINDOWS_SIGN_CERT_PASSWORD`; without them
+the release job warns and the output is unsigned (Windows SmartScreen will warn). Do not deploy unsigned assets.
+
+## Install on Linux
+
+Download `ovigyan-connector`, `ovigyan-connector-install.sh` and `ovigyan-connector.service` from the release into one
+folder, then:
+
+```bash
+chmod +x ovigyan-connector ovigyan-connector-install.sh
+sudo ./ovigyan-connector-install.sh      # installs to /usr/local/bin, creates a service user, starts the service
+sudo ovigyan-connector open               # prints the link to the connector's page
 ```
 
-Re-running a newer installer upgrades in place and keeps the existing settings. Uninstalling removes the program and
-task but keeps `connector.env`, the log and the queue so no punch is lost; delete that folder by hand to remove them.
-CI builds the installer and smoke-tests install, config permissions and uninstall on `windows-latest`.
-Signing: set repository secrets `WINDOWS_SIGN_CERT_BASE64` (PFX, base64) and `WINDOWS_SIGN_CERT_PASSWORD`;
-without them the release job warns and the output is unsigned.
-
-Run continuously with Windows Task Scheduler or Linux `systemd`. Service
-templates are in `packaging/`; keep the environment file outside the repository.
-The Windows registration script restricts it to SYSTEM and local administrators
-and loads values into the connector process only. Releases are unsigned until the signing secrets above are set; do not deploy unsigned assets.
+On a server without a screen, forward the port from your PC first (`ssh -L 47890:127.0.0.1:47890 you@server`) and open
+the link it prints. Settings are in `/var/lib/ovigyan-connector` (owner-only). `ovigyan-connector-uninstall.sh` removes
+the service and keeps the settings; add `--purge` to delete them too. The notification-area icon is built into the
+Windows and macOS builds only.
 
 The connector never clears device attendance logs. Events are queued in a
 local SQLite WAL database, retried after network failure, and removed only

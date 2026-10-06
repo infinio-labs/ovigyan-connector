@@ -48,9 +48,21 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e . pyinstaller==6.16.0
+          extra=""
+          if [ "${{ matrix.artifact }}" != "linux" ]; then
+            python -m pip install ".[tray]"
+            extra="--collect-submodules pystray"
+          fi
           pyinstaller --clean --noconfirm --onefile \
-            --collect-submodules zk \
+            --collect-submodules zk $extra \
             --name ovigyan-connector launcher.py
+
+      - name: Linux install kit
+        if: matrix.artifact == 'linux'
+        run: |
+          cp packaging/linux/install.sh dist/ovigyan-connector-install.sh
+          cp packaging/linux/uninstall.sh dist/ovigyan-connector-uninstall.sh
+          cp packaging/systemd/ovigyan-connector.service dist/ovigyan-connector.service
 
       - name: Install Inno Setup
         if: matrix.artifact == 'windows'
