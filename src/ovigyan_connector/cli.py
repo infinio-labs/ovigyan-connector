@@ -139,7 +139,7 @@ def run_once(test_events_path: str | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Ovigyan attendance device connector")
+    parser = argparse.ArgumentParser(description="Ovigyan attendance connector")
     parser.add_argument("--once", action="store_true", help="pull and deliver once, then exit")
     parser.add_argument(
         "--test-events",

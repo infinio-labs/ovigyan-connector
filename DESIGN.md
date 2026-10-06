@@ -1,4 +1,4 @@
-# Ovigyan device connector design
+# Ovigyan connector design
 
 ## Status
 
