@@ -113,7 +113,7 @@ begin
     Result := 'Terminal IP address and Machine ID are required.'
   else if Copy(Url, 1, 8) <> 'https://' then
     Result := 'The Ovigyan ingest URL must start with https://'
-  else if Copy(Trim(SettingsPage.Values[3]), 1, 9) <> 'ovigyan_dev_' then
+  else if Copy(Trim(SettingsPage.Values[3]), 1, 12) <> 'ovigyan_dev_' then
     Result := 'The connector token must start with ovigyan_dev_ (issue one in Ovigyan).'
   else if (Pos(#13, Url) > 0) or (Pos(#10, Url) > 0) then
     Result := 'The ingest URL must be a single line.';
