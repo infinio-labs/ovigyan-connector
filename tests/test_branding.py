@@ -63,6 +63,7 @@ class TestPngCheck:
     @pytest.mark.parametrize(
         "data",
         [b"", b"<svg xmlns='http://www.w3.org/2000/svg'/>", b"GIF89a" + b"0" * 30, png(2000, 2000), png()[:20], png(1, 1) + b"0" * MAX_LOGO_BYTES],
+        ids=["empty", "svg", "gif", "too-big-side", "truncated", "too-many-bytes"],
     )
     def test_refuses_everything_else(self, data):
         assert not is_small_png(data)

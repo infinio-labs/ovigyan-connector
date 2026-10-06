@@ -173,7 +173,8 @@ class TestApplyStaged:
     def test_swaps_in_the_staged_build_keeps_the_old_one_and_clears_the_staging_area(self, tmp_path):
         install = self.stage(tmp_path)
         assert apply_staged(tmp_path, install, PUBLIC) == f"installed {NEW}"
-        assert install.read_bytes().startswith(b"#!/bin/sh") and install.stat().st_mode & 0o111
+        assert install.read_bytes().startswith(b"#!/bin/sh")
+        assert sys.platform == "win32" or install.stat().st_mode & 0o111  # Windows has no execute bit
         assert (install.parent / "ovigyan-connector.previous").read_bytes() == b"old"
         assert not list((tmp_path / "updates").glob("*"))
 
@@ -199,6 +200,7 @@ class TestApplyStaged:
         install.write_bytes(b"old")
         assert "not newer" in apply_staged(tmp_path, install, PUBLIC) and install.read_bytes() == b"old"
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="creating symlinks needs a privilege on Windows; the update path is Linux-only")
     def test_symlinks_in_the_staging_area_are_refused(self, tmp_path):
         install = self.stage(tmp_path)
         binary = tmp_path / "updates" / LINUX_BINARY
