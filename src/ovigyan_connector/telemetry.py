@@ -7,9 +7,12 @@ message and stack frame). Off when no address is built in or set, and `OVIGYAN_T
 """
 from __future__ import annotations
 
+import functools
 import os
 import platform
 import re
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 from . import __version__
@@ -27,6 +30,45 @@ def _clean(text: object) -> object:
     return _IPV4.sub("<ip>", text) if isinstance(text, str) else text
 
 
+PACKAGE = "ovigyan_connector"
+
+
+def source_dir() -> Path:
+    """Where this program's own .py files are: beside the code, or (in the packaged build) bundled as data.
+    The packaged build keeps only compiled code, so without the bundled copy a report would show no source."""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", ".")) / PACKAGE
+    return Path(__file__).resolve().parent
+
+
+@functools.lru_cache(maxsize=64)
+def _lines(module: str) -> tuple[str, ...]:
+    parts = module.split(".")[1:]
+    path = source_dir().joinpath(*parts[:-1], parts[-1] + ".py") if parts else source_dir() / "__init__.py"
+    try:
+        return tuple(path.read_text(encoding="utf-8").splitlines())
+    except OSError:
+        return ()
+
+
+def source_available() -> bool:
+    return bool(_lines(f"{PACKAGE}.telemetry"))
+
+
+def _with_source(frame: dict) -> None:
+    """Our own frames get the code around them (this is open source, so it is not private); everyone else's get none."""
+    for key in ("vars", "pre_context", "context_line", "post_context"):
+        frame.pop(key, None)
+    module, number = frame.get("module") or "", frame.get("lineno")
+    if not (module == PACKAGE or module.startswith(PACKAGE + ".")) or not isinstance(number, int):
+        return
+    lines = _lines(module)
+    if 1 <= number <= len(lines):
+        frame["pre_context"] = list(lines[max(0, number - 6) : number - 1])
+        frame["context_line"] = lines[number - 1]
+        frame["post_context"] = list(lines[number : number + 5])
+
+
 def scrub(event: dict, _hint: object = None) -> dict | None:
     """Last line of defence before anything leaves the PC."""
     for key in ("server_name", "user", "request"):
@@ -41,8 +83,7 @@ def scrub(event: dict, _hint: object = None) -> dict | None:
     for exception in (event.get("exception") or {}).get("values", []) or []:
         exception["value"] = _clean(exception.get("value"))
         for frame in (exception.get("stacktrace") or {}).get("frames", []) or []:
-            for key in ("vars", "pre_context", "context_line", "post_context"):
-                frame.pop(key, None)
+            _with_source(frame)
     return event
 
 

@@ -151,6 +151,11 @@ def run_command(argv: list[str], service: ConnectorService | None = None) -> int
 
             from . import __version__
 
+            from .telemetry import source_available
+
+            if not source_available():  # the packaged build must carry its source so error reports can show code
+                print("the program's source is missing from this build", file=sys.stderr)
+                return 1
             print(f"ovigyan-connector {__version__} ok")
         elif args.command == "apply-update":
             from pathlib import Path

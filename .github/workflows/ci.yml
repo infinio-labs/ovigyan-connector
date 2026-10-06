@@ -85,7 +85,9 @@ jobs:
         run: |
           extra=""
           if [ "${{ matrix.name }}" != "linux" ]; then extra="--collect-submodules pystray"; fi
-          pyinstaller --clean --noconfirm --onefile --collect-submodules zk $extra --name ovigyan-connector launcher.py
+          sep=":"; if [ "$RUNNER_OS" = "Windows" ]; then sep=";"; fi
+          # The program's own source goes in as data so error reports can show the code around a failure.
+          pyinstaller --clean --noconfirm --onefile --collect-submodules zk $extra --add-data "src/ovigyan_connector/*.py${sep}ovigyan_connector" --name ovigyan-connector launcher.py
       - name: Self-test the executable (the updater relies on this)
         shell: bash
         run: dist/ovigyan-connector self-test | grep -q ' ok$'

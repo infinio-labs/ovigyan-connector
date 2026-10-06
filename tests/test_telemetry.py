@@ -95,3 +95,32 @@ class TestScrub:
         assert out["message"] == "failed at <ip>" and out["exception"]["values"][0]["value"] == "bad <ip>"
         assert out["exception"]["values"][0]["stacktrace"]["frames"] == [{"lineno": 3}]
         assert not ({"server_name", "user", "request", "breadcrumbs"} & set(out))
+
+
+class TestSourceForFrozenBuilds:
+    def frame(self, module="ovigyan_connector.state", lineno=3):
+        return {"module": module, "lineno": lineno, "vars": {"x": 1}}
+
+    def test_our_frames_get_the_surrounding_code_and_others_get_none(self):
+        ours, theirs = self.frame(), self.frame("requests.api")
+        theirs["context_line"] = "secret = 1"
+        scrub({"exception": {"values": [{"stacktrace": {"frames": [ours, theirs]}}]}})
+        assert ours["context_line"] == telemetry._lines("ovigyan_connector.state")[2] and "vars" not in ours
+        assert len(ours["pre_context"]) == 2 and len(ours["post_context"]) == 5
+        assert not ({"context_line", "pre_context", "vars"} & set(theirs))
+
+    def test_the_package_itself_and_out_of_range_lines_are_handled(self):
+        init, far = self.frame("ovigyan_connector", 1), self.frame(lineno=10**6)
+        scrub({"exception": {"values": [{"stacktrace": {"frames": [init, far]}}]}})
+        assert "context_line" in init and "context_line" not in far
+
+    def test_a_packaged_build_reads_the_source_it_carries(self, tmp_path, monkeypatch):
+        (tmp_path / "ovigyan_connector").mkdir()
+        (tmp_path / "ovigyan_connector" / "state.py").write_text("one\ntwo\nthree\nfour\n")
+        monkeypatch.setattr("sys.frozen", True, raising=False)
+        monkeypatch.setattr("sys._MEIPASS", str(tmp_path), raising=False)
+        telemetry._lines.cache_clear()
+        frame = self.frame(lineno=2)
+        scrub({"exception": {"values": [{"stacktrace": {"frames": [frame]}}]}})
+        assert (frame["pre_context"], frame["context_line"], frame["post_context"]) == (["one"], "two", ["three", "four"])
+        telemetry._lines.cache_clear()
