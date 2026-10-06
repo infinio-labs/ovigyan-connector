@@ -13,14 +13,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Never package a tag that did not pass the same tests and installer smoke test as a pull request.
+  ci:
+    name: Verify tagged commit
+    uses: ./.github/workflows/ci.yml
+    with:
+      package: 'false' # release packages (and signs) the artifacts itself
+
   package:
-    name: Package (${{ matrix.os }})
+    name: Package (${{ matrix.artifact }})
+    needs: ci
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: self-hosted
             artifact: linux
           - os: windows-latest
             artifact: windows
