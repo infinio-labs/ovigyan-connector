@@ -25,11 +25,13 @@ jobs:
       matrix:
         # Everything runs on GitHub-hosted runners (the repository is public, so they are free). Windows is
         # needed because the connector ships as a Windows service and the installer scripts can only be
-        # checked there. macOS is not shipped.
+        # checked there. macOS is built and tested here too; release artifacts are Linux and Windows only.
         include:
           - { name: linux, os: ubuntu-latest, python: '3.10' }
           - { name: linux, os: ubuntu-latest, python: '3.13' }
           - { name: windows, os: windows-latest, python: '3.13' }
+          - { name: macos, os: macos-latest, python: '3.10' }
+          - { name: macos, os: macos-latest, python: '3.13' }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -63,6 +65,7 @@ jobs:
         include:
           - { name: linux, os: ubuntu-latest }
           - { name: windows, os: windows-latest }
+          - { name: macos, os: macos-latest }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
