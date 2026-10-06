@@ -1,4 +1,4 @@
-from ides_device_connector.cli import main
+from ovigyan_connector.cli import main
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 # Leave a record of what happened (the installer runs this hidden).
 if ($LogPath) { Start-Transcript -LiteralPath ($LogPath + '.register.txt') -Force | Out-Null }
-$taskName = 'IDeS Attendance Device Connector'
+$taskName = 'Ovigyan Attendance Connector'
 $runnerPath = Join-Path $PSScriptRoot 'run-connector.ps1'
 $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ExecutablePath "{1}" -ConfigPath "{2}"' -f `
     $runnerPath, $ExecutablePath, $ConfigPath

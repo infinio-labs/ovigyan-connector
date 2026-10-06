@@ -82,7 +82,7 @@ def deliver(transport, outbox: Outbox, batch: list, deferred: set[str]) -> int:
             raise
         if len(batch) == 1:
             outbox.quarantine(batch[0][0], reason)
-            print(f"ides-device-connector: quarantined event {batch[0][0]}: {reason}", file=sys.stderr)
+            print(f"ovigyan-connector: quarantined event {batch[0][0]}: {reason}", file=sys.stderr)
             return 0
         middle = len(batch) // 2
         return deliver(transport, outbox, batch[:middle], deferred) + deliver(transport, outbox, batch[middle:], deferred)
@@ -111,7 +111,7 @@ def run_once(test_events_path: str | None = None) -> int:
         max_retries=int(os.environ.get("ATTENDANCE_HTTP_RETRIES", "3")),
         retry_backoff_seconds=float(os.environ.get("ATTENDANCE_RETRY_BACKOFF_SECONDS", "2")),
     )
-    outbox = Outbox(os.environ.get("ATTENDANCE_OUTBOX_PATH", str(Path.home() / ".ides-attendance" / "outbox.db")))
+    outbox = Outbox(os.environ.get("ATTENDANCE_OUTBOX_PATH", str(Path.home() / ".ovigyan-attendance" / "outbox.db")))
     try:
         if test_events_path:
             events = load_test_events(test_events_path, timezone_name)
@@ -139,7 +139,7 @@ def run_once(test_events_path: str | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="IDeS attendance device connector")
+    parser = argparse.ArgumentParser(description="Ovigyan attendance device connector")
     parser.add_argument("--once", action="store_true", help="pull and deliver once, then exit")
     parser.add_argument(
         "--test-events",
@@ -151,14 +151,14 @@ def main(argv: list[str] | None = None) -> int:
         try:
             return run_once(args.test_events)
         except Exception as error:
-            print(f"ides-device-connector: {error}", file=sys.stderr)
+            print(f"ovigyan-connector: {error}", file=sys.stderr)
             return 1
     interval = int(os.environ.get("ATTENDANCE_POLL_SECONDS", "60"))
     while True:
         try:
             run_once()
         except Exception as error:
-            print(f"ides-device-connector: {error}", file=sys.stderr)
+            print(f"ovigyan-connector: {error}", file=sys.stderr)
             if args.once:
                 return 1
         if args.once:

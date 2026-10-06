@@ -1,6 +1,6 @@
 import pytest
 
-from ides_device_connector.cli import validate_test_ingest_url
+from ovigyan_connector.cli import validate_test_ingest_url
 
 
 def test_test_ingest_url_only_allows_local_http(monkeypatch):

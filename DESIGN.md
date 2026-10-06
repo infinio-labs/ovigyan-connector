@@ -1,4 +1,4 @@
-# IDeS device connector design
+# Ovigyan device connector design
 
 ## Status
 
@@ -54,7 +54,7 @@ read users, write users, set its clock, or clear logs.
 ```
 
 `eventId` is stable per device event. `punch=255` maps to `unknown`; the
-connector preserves the raw value. IDeS deduplicates by device and event ID,
+connector preserves the raw value. Ovigyan deduplicates by device and event ID,
 then applies an administrator-created user mapping. Unmapped or ambiguous
 events never create ledger rows.
 

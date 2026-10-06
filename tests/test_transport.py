@@ -4,8 +4,8 @@ import http.client
 import json
 import urllib.error
 
-from ides_device_connector.transport import EventTransport
-from ides_device_connector.cli import validate_ingest_url
+from ovigyan_connector.transport import EventTransport
+from ovigyan_connector.cli import validate_ingest_url
 
 
 def test_ingest_url_requires_https(monkeypatch):
@@ -78,8 +78,8 @@ def test_transport_uses_device_token_without_shared_secret(monkeypatch):
         return Response()
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    EventTransport("https://example.test/events", "", "machine-1", token="ides_dev_token").send([{"eventId": "1"}])
-    assert captured["headers"].get("X-device-token") == "ides_dev_token"
+    EventTransport("https://example.test/events", "", "machine-1", token="ovigyan_dev_token").send([{"eventId": "1"}])
+    assert captured["headers"].get("X-device-token") == "ovigyan_dev_token"
     assert captured["headers"].get("X-attendance-signature") is None
 
 
@@ -106,7 +106,7 @@ def test_transport_retries_transient_http_failures(monkeypatch):
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     monkeypatch.setattr("time.sleep", lambda seconds: sleeps.append(seconds))
-    result = EventTransport("https://example.test/events", "", "machine-1", token="ides_dev_token", max_retries=2, retry_backoff_seconds=1).send([{"eventId": "1"}])
+    result = EventTransport("https://example.test/events", "", "machine-1", token="ovigyan_dev_token", max_retries=2, retry_backoff_seconds=1).send([{"eventId": "1"}])
 
     assert result == {"accepted": 1}
     assert attempts == 3
@@ -137,7 +137,7 @@ def test_transport_retries_dropped_http_connections(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda _: None)
 
     result = EventTransport(
-        "https://example.test/events", "", "machine-1", token="ides_dev_token", max_retries=1
+        "https://example.test/events", "", "machine-1", token="ovigyan_dev_token", max_retries=1
     ).send([{"eventId": "1"}])
 
     assert result == {"accepted": 1}
@@ -154,7 +154,7 @@ def test_transport_does_not_retry_permanent_http_failures(monkeypatch):
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     try:
-        EventTransport("https://example.test/events", "", "machine-1", token="ides_dev_token", max_retries=3).send([{"eventId": "1"}])
+        EventTransport("https://example.test/events", "", "machine-1", token="ovigyan_dev_token", max_retries=3).send([{"eventId": "1"}])
     except urllib.error.HTTPError as error:
         assert error.code == 401
     else:
@@ -182,9 +182,9 @@ def test_transport_heartbeat_uses_device_auth(monkeypatch):
         return Response()
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    result = EventTransport("https://example.test/api/attendance/device-events", "", "machine-1", token="ides_dev_token").heartbeat()
+    result = EventTransport("https://example.test/api/attendance/device-events", "", "machine-1", token="ovigyan_dev_token").heartbeat()
 
     assert result == {"status": "online"}
     assert captured["url"].endswith("/heartbeat")
     assert captured["body"] == b""
-    assert captured["headers"].get("X-device-token") == "ides_dev_token"
+    assert captured["headers"].get("X-device-token") == "ovigyan_dev_token"

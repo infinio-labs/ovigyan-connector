@@ -1,15 +1,15 @@
-# IDeS Device Connector
+# Ovigyan Connector
 
 Cross-platform edge runtime for attendance terminals. It runs inside the
 branch LAN, reads vendor protocols, buffers events locally, and delivers signed
-batches to the IDeS cloud control plane. It contains no attendance business
+batches to the Ovigyan cloud control plane. It contains no attendance business
 rules.
 
 ## X2008 quick start
 
 The first adapter targets the supplied eSSL X2008 (`NFZ824090078`) through the
 ZK-compatible TCP pull protocol. Configure the device IP and port `4370` in
-the IDeS Device Management screen first.
+the Ovigyan Device Management screen first.
 
 ```bash
 python -m venv .venv
@@ -19,11 +19,11 @@ python -m pip install -e .
 export ATTENDANCE_DEVICE_HOST=192.168.1.50
 export ATTENDANCE_MACHINE_ID=NFZ824090078
 export ATTENDANCE_INGEST_URL=https://school.example.com/api/attendance/device-events
-# Prefer the one-time token issued from IDeS Device Management.
-export ATTENDANCE_DEVICE_TOKEN='ides_dev_...'
+# Prefer the one-time token issued from Ovigyan Device Management.
+export ATTENDANCE_DEVICE_TOKEN='ovigyan_dev_...'
 # Legacy bootstrap fallback only:
 # export ATTENDANCE_INGEST_SECRET='server-ATTENDANCE_INGEST_SECRET'
-python -m ides_device_connector.cli --once
+python -m ovigyan_connector.cli --once
 ```
 
 Windows PowerShell uses `$env:NAME="value"`. The runtime uses only
@@ -58,21 +58,21 @@ service configuration. The cloud stores only its hash. The shared
 
 ## Windows installer
 
-Release builds publish `ides-device-connector-setup-<version>.exe` (Inno Setup). Run it as an
+Release builds publish `ovigyan-connector-setup-<version>.exe` (Inno Setup). Run it as an
 administrator on an always-on PC **in the terminal's network**. The wizard asks for the terminal IP,
-Machine ID, the IDeS ingest URL (HTTPS) and the connector token issued in IDeS, then:
+Machine ID, the Ovigyan ingest URL (HTTPS) and the connector token issued in Ovigyan, then:
 
-- installs to `C:\Program Files\IDeS Device Connector`;
-- writes `C:\ProgramData\IDeS Device Connector\connector.env` (readable only by SYSTEM and Administrators);
+- installs to `C:\Program Files\Ovigyan Connector`;
+- writes `C:\ProgramData\Ovigyan Connector\connector.env` (readable only by SYSTEM and Administrators);
 - registers a boot-time scheduled task running as SYSTEM, restarts on failure, and starts it now;
-- logs to `C:\ProgramData\IDeS Device Connector\connector.log`; the undelivered-punch queue lives next to it.
+- logs to `C:\ProgramData\Ovigyan Connector\connector.log`; the undelivered-punch queue lives next to it.
 
 Silent roll-out:
 
 ```powershell
-.\ides-device-connector-setup-1.2.3.exe /VERYSILENT /SUPPRESSMSGBOXES `
+.\ovigyan-connector-setup-1.2.3.exe /VERYSILENT /SUPPRESSMSGBOXES `
   /DEVICE_HOST=192.168.1.50 /MACHINE_ID=NFZ824090078 `
-  /INGEST_URL=https://school.example.com/api/attendance/device-events /TOKEN=ides_dev_...
+  /INGEST_URL=https://school.example.com/api/attendance/device-events /TOKEN=ovigyan_dev_...
 ```
 
 Re-running a newer installer upgrades in place and keeps the existing settings. Uninstalling removes the program and

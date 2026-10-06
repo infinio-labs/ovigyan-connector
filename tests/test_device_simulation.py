@@ -6,8 +6,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from fake_zk_device import FakeZkDevice
-from ides_device_connector import cli
-from ides_device_connector.adapters import EsslX2008Adapter
+from ovigyan_connector import cli
+from ovigyan_connector.adapters import EsslX2008Adapter
 
 ROWS = [
     {"uid": 1, "user_id": "42", "timestamp": "2026-09-10T08:00:00", "punch": 0, "status": 1},
@@ -62,7 +62,7 @@ def run_cli(monkeypatch, tmp_path, device_port, cloud):
         "ATTENDANCE_DEVICE_HOST": "127.0.0.1",
         "ATTENDANCE_DEVICE_PORT": str(device_port),
         "ATTENDANCE_MACHINE_ID": "SIM-1",
-        "ATTENDANCE_DEVICE_TOKEN": "ides_dev_x",
+        "ATTENDANCE_DEVICE_TOKEN": "ovigyan_dev_x",
         "ATTENDANCE_INGEST_URL": f"http://127.0.0.1:{cloud.server_port}/api/attendance/device-events",
         "ATTENDANCE_ALLOW_INSECURE_HTTP": "true",
         "ATTENDANCE_OUTBOX_PATH": str(tmp_path / "outbox.db"),

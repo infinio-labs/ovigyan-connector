@@ -5,8 +5,8 @@ import urllib.error
 
 import pytest
 
-from ides_device_connector.cli import deliver
-from ides_device_connector.outbox import Outbox
+from ovigyan_connector.cli import deliver
+from ovigyan_connector.outbox import Outbox
 
 
 class FakeTransport:
