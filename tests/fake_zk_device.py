@@ -15,6 +15,7 @@ import threading
 from datetime import datetime
 
 CMD_CONNECT, CMD_EXIT, CMD_GET_FREE_SIZES, CMD_FREE_DATA = 1000, 1001, 50, 1502
+CMD_OPTIONS_RRQ, CMD_GET_VERSION, CMD_AUTH, CMD_ACK_UNAUTH = 11, 1100, 1102, 2005
 CMD_READ_BUFFER, CMD_ACK_OK, CMD_DATA = 1503, 2000, 1501
 
 
@@ -66,8 +67,20 @@ class _Handler(socketserver.BaseRequestHandler):
             if not body:
                 return
             command, _, session, reply_id = struct.unpack("<4H", body[:8])
+            device = self.server.device  # type: ignore[attr-defined]
             if command == CMD_CONNECT:
-                self.request.sendall(_reply(CMD_ACK_OK, 1, reply_id))
+                # A terminal with a communication password answers "unauthorized" until CMD_AUTH succeeds.
+                # The fake never accepts it, which is all the connector's wrong-password path needs.
+                code = CMD_ACK_UNAUTH if device.require_password else CMD_ACK_OK
+                self.request.sendall(_reply(code, 1, reply_id))
+            elif command == CMD_AUTH:
+                self.request.sendall(_reply(CMD_ACK_UNAUTH, session, reply_id))
+            elif command == CMD_OPTIONS_RRQ:
+                name = body[8:].split(b"\x00")[0].decode()
+                value = {"~SerialNumber": device.serial, "~DeviceName": device.model}.get(name, "")
+                self.request.sendall(_reply(CMD_ACK_OK, session, reply_id, f"{name}={value}".encode() + b"\x00"))
+            elif command == CMD_GET_VERSION:
+                self.request.sendall(_reply(CMD_ACK_OK, session, reply_id, device.firmware.encode() + b"\x00"))
             elif command == CMD_GET_FREE_SIZES:
                 fields = [0] * 20
                 fields[8] = len(records)  # records
@@ -94,10 +107,20 @@ class FakeZkDevice(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, records: list[dict] | None = None, port: int = 0, host: str = "127.0.0.1"):
+    def __init__(
+        self,
+        records: list[dict] | None = None,
+        port: int = 0,
+        host: str = "127.0.0.1",
+        serial: str = "FAKE0001",
+        model: str = "X2008",
+        firmware: str = "Ver 6.60 Jan 1 2024",
+        require_password: bool = False,
+    ):
         super().__init__((host, port), _Handler)
         self.device = self
         self.records = records if records is not None else []
+        self.serial, self.model, self.firmware, self.require_password = serial, model, firmware, require_password
         self.port = self.server_address[1]
 
     def __enter__(self) -> "FakeZkDevice":

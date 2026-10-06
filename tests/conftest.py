@@ -1,0 +1,7 @@
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _allow_local_http(monkeypatch):
+    # The fake cloud speaks plain HTTP on localhost; real sites must be HTTPS.
+    monkeypatch.setenv("OVIGYAN_ALLOW_INSECURE_HTTP", "true")

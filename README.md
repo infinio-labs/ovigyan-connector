@@ -5,7 +5,36 @@ branch LAN, reads vendor protocols, buffers events locally, and delivers signed
 batches to the Ovigyan cloud control plane. It contains no attendance business
 rules.
 
-## X2008 quick start
+## Paired mode (recommended)
+
+Instead of environment variables, pair the connector with your Ovigyan site once and add terminals by IP.
+Everything else (which branch a terminal belongs to, its name, mapping people to terminal users, the polling
+interval, and the date before which old punches are ignored) is managed in Ovigyan.
+
+```bash
+# 1. In Ovigyan: Settings > Connectors > Generate key. Then on this PC:
+ovigyan-connector pair --server https://school.example.com --key OVG-XXXXX-XXXXX-XXXXX-XXXXX
+
+# 2. Add each terminal (reads its serial number, model and firmware to check it works):
+ovigyan-connector add-device --host 192.168.1.50            # --port 4370 --password 0 by default
+
+# 3. An administrator approves the terminal in Ovigyan (Settings > Connectors > New terminals).
+
+# 4. Run it (a service in production):
+ovigyan-connector run                                       # or: run --once
+```
+
+Other commands: `devices`, `status`, `remove-device <id>`, `unpair`. Settings live in
+`C:\ProgramData\Ovigyan Connector` (Windows), `/var/lib/ovigyan-connector` (Linux, as root) or
+`~/.ovigyan-connector`; override with `OVIGYAN_CONNECTOR_HOME` or `--home`. The file holds the connection
+credential and the terminals' communication passwords, so it is readable only by its owner. The terminal
+passwords never leave this PC.
+
+If the school revokes the connector in Ovigyan, the next check shows "revoked": pair again with a new key.
+Terminals the connector cannot reach are reported without stopping the others, and punches that could not be
+delivered stay queued (one queue per terminal) and go out when the connection returns.
+
+## X2008 quick start (environment variables)
 
 The first adapter targets the supplied eSSL X2008 (`NFZ824090078`) through the
 ZK-compatible TCP pull protocol. Configure the device IP and port `4370` in

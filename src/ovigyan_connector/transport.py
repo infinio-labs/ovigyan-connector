@@ -17,6 +17,7 @@ class EventTransport:
         secret: str,
         machine_id: str,
         token: str = "",
+        credential: str = "",
         timeout: int = 30,
         max_retries: int = 3,
         retry_backoff_seconds: float = 2.0,
@@ -26,6 +27,7 @@ class EventTransport:
         self.secret = secret.encode()
         self.machine_id = machine_id
         self.token = token
+        self.credential = credential
         self.timeout = timeout
         self.max_retries = max(0, max_retries)
         self.retry_backoff_seconds = max(0.0, retry_backoff_seconds)
@@ -38,7 +40,10 @@ class EventTransport:
             "x-attendance-timestamp": timestamp,
             "x-device-machine-id": self.machine_id,
         }
-        if self.token:
+        if self.credential:
+            # Paired connector: its own credential, accepted for terminals approved under it.
+            headers["authorization"] = f"Bearer {self.credential}"
+        elif self.token:
             headers["x-device-token"] = self.token
         else:
             signature = hmac.new(self.secret, timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
