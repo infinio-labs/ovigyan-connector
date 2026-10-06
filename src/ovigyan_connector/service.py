@@ -5,6 +5,7 @@ A local page, a tray icon and the command line all drive this same object, so wh
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -71,6 +72,7 @@ class ConnectorService:
         reader: Reader = read_terminal,
         http_retries: int = 2,
         retry_backoff_seconds: float = 1.0,
+        probe_timeout: int | None = None,
     ):
         self.store = store or StateStore()
         self.client_factory = client_factory
@@ -78,6 +80,8 @@ class ConnectorService:
         self.reader = reader
         self.http_retries = http_retries
         self.retry_backoff_seconds = retry_backoff_seconds
+        # How long to wait for a terminal when adding it. Windows takes a few seconds to give up on a closed port.
+        self.probe_timeout = probe_timeout or int(os.environ.get("OVIGYAN_PROBE_TIMEOUT", "0") or 0) or 5
         # The loop and a page can both change the saved state, so changes are serialised.
         self._lock = threading.RLock()
         self._wake: threading.Event | None = None
@@ -129,7 +133,7 @@ class ConnectorService:
     def _add_device(self, host: str, port: int = 4370, password: int = 0) -> tuple[LocalDevice, bool]:
         """Check a terminal is reachable, remember it, and tell the cloud. Returns (device, already_known)."""
         host, port = validate_address(host, port)
-        info = self.prober(host, port, password)
+        info = self.prober(host, port, password, self.probe_timeout)
         state = self.store.load()
         existing = next((d for d in state.devices if d.serial == info.serial), None)
         if existing:

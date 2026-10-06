@@ -8,8 +8,6 @@
 #define AppName "Ovigyan Connector"
 #define TaskName "Ovigyan Attendance Connector"
 #define Exe "ovigyan-connector.exe"
-; Open the page, or the tray, without a console window flashing.
-#define Hidden "-NoProfile -WindowStyle Hidden -Command ""Start-Process -WindowStyle Hidden -FilePath '{app}\" + Exe + "' -ArgumentList '"
 
 [Setup]
 AppId={{B7E6C2A4-5C1B-4B0E-9E3A-1D5A7C6F2A10}
@@ -41,13 +39,13 @@ Name: "{commonappdata}\Ovigyan Connector"
 
 [Icons]
 ; The one thing staff need: open the connector's page.
-Name: "{group}\{#AppName}"; Filename: "powershell.exe"; Parameters: "{#Hidden}open'"""; IconFilename: "{app}\{#Exe}"
-Name: "{commondesktop}\{#AppName}"; Filename: "powershell.exe"; Parameters: "{#Hidden}open'"""; IconFilename: "{app}\{#Exe}"
+Name: "{group}\{#AppName}"; Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -Command ""Start-Process -WindowStyle Hidden -FilePath '{app}\ovigyan-connector.exe' -ArgumentList 'open'"""; IconFilename: "{app}\{#Exe}"
+Name: "{commondesktop}\{#AppName}"; Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -Command ""Start-Process -WindowStyle Hidden -FilePath '{app}\ovigyan-connector.exe' -ArgumentList 'open'"""; IconFilename: "{app}\{#Exe}"
 ; The notification-area icon, for whoever signs in to this PC. (Only when this build includes it.)
-Name: "{commonstartup}\{#AppName} status icon"; Filename: "powershell.exe"; Parameters: "{#Hidden}tray'"""; IconFilename: "{app}\{#Exe}"
+Name: "{commonstartup}\{#AppName} status icon"; Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -Command ""Start-Process -WindowStyle Hidden -FilePath '{app}\ovigyan-connector.exe' -ArgumentList 'tray'"""; IconFilename: "{app}\{#Exe}"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "{#Hidden}open'"""; Description: "Open {#AppName} now"; Flags: postinstall nowait skipifsilent
+Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -Command ""Start-Process -WindowStyle Hidden -FilePath '{app}\ovigyan-connector.exe' -ArgumentList 'open'"""; Description: "Open {#AppName} now"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 Filename: "cmd.exe"; Parameters: "/C set PSModulePath=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\unregister-task.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveTask"
