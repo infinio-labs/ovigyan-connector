@@ -25,6 +25,7 @@ from .devices import DeviceInfo, ProbeError, probe, validate_address
 from .events import EventEnvelope
 from .outbox import Outbox
 from .updater import Outcome, Policy, Updater
+from . import telemetry
 from .state import LocalDevice, State, StateStore
 from .transport import EventTransport
 
@@ -123,6 +124,7 @@ class ConnectorService:
         state.connector_name = result.name
         state.status = "paired"
         self._apply_branding(state, result.branding or {})
+        telemetry.set_site(origin)
         self.store.save(state)
         return state
 
@@ -376,6 +378,7 @@ class ConnectorService:
             except Exception as error:  # noqa: BLE001 - the service must outlive any single bad cycle
                 failures += 1
                 print(f"ovigyan-connector: {error}", file=sys.stderr)
+                telemetry.capture(error)
             if failures:
                 wait = min(300.0, wait * (2 ** min(failures, 3)))
             self._pause(stop, wait if fixed_wait is None else fixed_wait)
@@ -388,6 +391,8 @@ class ConnectorService:
         outcome = self.updater.run(self.policy, idle=idle)
         if outcome.status in {"restart", "failed"}:
             print(f"ovigyan-connector: update: {outcome.message}", file=sys.stderr, flush=True)
+        if outcome.status == "failed":
+            telemetry.capture(f"update failed: {outcome.message}")
         if outcome.status == "restart":
             self.restart_requested = True
             if stop is not None:

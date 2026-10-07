@@ -115,6 +115,9 @@ def run_command(argv: list[str], service: ConnectorService | None = None) -> int
             if last:
                 print(f"Last check {last['at']}: {last['connector']} - {last['message']}")
         elif args.command == "run":
+            from . import telemetry
+
+            telemetry.init(service.store.load().server)
             if args.once:
                 report = service.run_cycle()
                 _print_report(report)
@@ -143,10 +146,16 @@ def run_command(argv: list[str], service: ConnectorService | None = None) -> int
                     server.server_close()
         elif args.command == "self-test":
             import cryptography  # noqa: F401 - the updater needs it
+            import sentry_sdk  # noqa: F401 - error reports need it
             import zk  # noqa: F401
 
             from . import __version__
 
+            from .telemetry import source_available
+
+            if not source_available():  # the packaged build must carry its source so error reports can show code
+                print("the program's source is missing from this build", file=sys.stderr)
+                return 1
             print(f"ovigyan-connector {__version__} ok")
         elif args.command == "apply-update":
             from pathlib import Path

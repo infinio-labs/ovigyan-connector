@@ -161,6 +161,15 @@ local SQLite WAL database, retried after network failure, and removed only
 after a successful server response. The server remains responsible for
 identity mapping, quarantine, attendance policy, and ledger writes.
 
+## Error reports
+
+Release builds report crashes and unexpected errors to Infinio's Bugsink (the `BUGSINK_DSN` repository variable is
+written into the build; source builds report nothing). A report holds the error, its stack, the connector version, the
+operating system and the school's Ovigyan address. It never holds local variables (terminal passwords, the
+credential), the PC's name, attendance records, or IP addresses (replaced by `<ip>`). The packaged build carries its own source, so a report shows the lines of code around the failure (Python has no
+source maps; this is their equivalent, and CI's self-test fails a build that lacks it). A terminal that is simply off or
+a network drop is not reported. Set `OVIGYAN_TELEMETRY=off` in the service's environment to switch it off.
+
 ## Development
 
 ```bash

@@ -7,7 +7,7 @@ name = "ovigyan-connector"
 version = "0.2.0"
 description = "Cross-platform edge connector for Ovigyan attendance devices"
 requires-python = ">=3.10"
-dependencies = ["pyzk==0.9", "tzdata==2025.2", "cryptography>=42"]
+dependencies = ["pyzk==0.9", "tzdata==2025.2", "cryptography>=42", "sentry-sdk>=2.0"]
 
 [project.optional-dependencies]
 # The notification-area icon. Windows and macOS builds include it; Linux servers do not need it.
