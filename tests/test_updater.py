@@ -92,7 +92,8 @@ class TestDeciding:
         up, host = updater(tmp_path)
         assert up.run(Policy(target=NEW, auto=False)).status == "held" and host.requested == []
 
-    def test_a_build_without_a_key_never_updates(self, tmp_path):
+    def test_a_build_without_a_key_never_updates(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("ovigyan_connector.updater.PUBLIC_KEY", "")
         up, host = updater(tmp_path, public="")
         assert up.run(Policy(target=NEW)).status == "disabled" and host.requested == []
 
