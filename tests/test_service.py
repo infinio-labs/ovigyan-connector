@@ -326,3 +326,24 @@ class TestPacing:
         stop = _RecordingStop(4)
         make(tmp_path).run_forever(stop)
         assert stop.waits == [120.0, 240.0, 300.0, 300.0]  # doubles, capped at five minutes
+
+
+def test_next_report_carries_what_the_last_cycle_learned(tmp_path):
+    """The site shows queue depth, last poll and last problem per terminal, so the connector sends them."""
+    from ovigyan_connector.service import OK, UNREACHABLE, DeviceStatus
+    from ovigyan_connector.state import LocalDevice
+
+    service = make(tmp_path)
+    device = LocalDevice(host="192.168.1.50", port=4370, password="0", serial="SN9", model="X2008")
+    assert "status" not in service._report_payload([device])[0]  # nothing known yet: old behaviour
+
+    service._remember(device, DeviceStatus(device.id, device.host, device.port, "SN9", "X2008", UNREACHABLE, "Can't reach the terminal.", queued=7))
+    status = service._report_payload([device])[0]["status"]
+    assert status["queueDepth"] == 7
+    assert status["lastError"] == "Can't reach the terminal."
+    assert "lastPollAt" not in status  # it never answered
+
+    service._remember(device, DeviceStatus(device.id, device.host, device.port, "SN9", "X2008", OK, "Working.", queued=0))
+    status = service._report_payload([device])[0]["status"]
+    assert status["queueDepth"] == 0 and "lastPollAt" in status
+    assert "lastError" not in status  # a clean poll clears the last problem
