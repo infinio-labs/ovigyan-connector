@@ -88,6 +88,8 @@ class ConnectorService:
         self.logo_fetcher = logo_fetcher
         self.updater = updater or Updater(self.store.home)
         self.policy: Policy | None = None  # what the site last asked for
+        # What the last cycle learned about each terminal, sent with the next report so the site can show queue and errors.
+        self._diagnostics: dict[str, dict] = {}
         self.restart_requested = False
         self.http_retries = http_retries
         self.retry_backoff_seconds = retry_backoff_seconds
@@ -186,11 +188,11 @@ class ConnectorService:
             state.server, state.credential, max_retries=self.http_retries, retry_backoff_seconds=self.retry_backoff_seconds
         )
 
-    @staticmethod
-    def _report_payload(devices: list[LocalDevice]) -> list[dict]:
+    def _report_payload(self, devices: list[LocalDevice]) -> list[dict]:
         return [
             {"serialNumber": d.serial, "vendor": "essl" if (d.model or "").upper().startswith(("X", "E")) else "zkteco",
-             "model": d.model, "host": d.host, "port": d.port}
+             "model": d.model, "host": d.host, "port": d.port,
+             **({"status": self._diagnostics[d.serial]} if d.serial in self._diagnostics else {})}
             for d in devices
             if d.serial
         ]
@@ -271,6 +273,34 @@ class ConnectorService:
         return DeviceStatus(device.id, device.host, device.port, device.serial, device.model, state, message, **extra)
 
     def _poll(self, state: State, client: CloudClient, device: LocalDevice, config: CloudConfig) -> DeviceStatus:
+        status = self._poll_device(state, client, device, config)
+        self._remember(device, status)
+        return status
+
+    def _remember(self, device: LocalDevice, status: DeviceStatus) -> None:
+        """Keep the facts the site shows: how many punches are waiting, when the terminal last answered, the last problem."""
+        if not device.serial or status.state in (PENDING, REJECTED, DISABLED, UNKNOWN):
+            return
+        entry = self._diagnostics.setdefault(device.serial, {})
+        now = _utc_now()
+        entry["queueDepth"] = status.queued
+        if status.state == OK:
+            entry["lastPollAt"] = now  # the terminal itself answered
+        if status.state == OK and status.message == "Working.":
+            entry.pop("lastError", None)
+            entry.pop("lastErrorAt", None)
+        else:
+            entry["lastError"], entry["lastErrorAt"] = status.message, now
+        try:
+            box = Outbox(self.store.outbox_path(device.serial))
+            try:
+                entry["rejectedCount"] = box.rejected_count()
+            finally:
+                box.close()
+        except Exception:  # noqa: BLE001 - diagnostics must never stop a poll
+            pass
+
+    def _poll_device(self, state: State, client: CloudClient, device: LocalDevice, config: CloudConfig) -> DeviceStatus:
         serial = device.serial
         if not serial:
             return self._status(device, UNKNOWN, "Not identified yet. Remove it and add it again.")
