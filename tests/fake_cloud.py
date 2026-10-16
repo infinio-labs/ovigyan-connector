@@ -45,6 +45,13 @@ class _Handler(BaseHTTPRequestHandler):
             for device in body.get("devices", []):
                 cloud.reported[device["serialNumber"]] = device
             return self._send(200, {"devices": [{"serialNumber": s, "state": cloud.state_of(s)} for s in cloud.reported]})
+        if self.path == "/api/connectors/devices/users":
+            if not cloud.users_supported:
+                return self._send(404, {"error": "not found"})
+            if cloud.state_of(str(body.get("serialNumber"))) != "approved":
+                return self._send(404, {"error": "Unknown terminal, or no \"users\" list."})
+            cloud.users[str(body["serialNumber"])] = body.get("users", [])
+            return self._send(200, {"saved": len(body.get("users", []))})
         if self.path == "/api/attendance/heartbeat":
             cloud.heartbeats.append(self.headers.get("x-device-machine-id"))
             return self._send(200, {"status": "online"})
@@ -76,6 +83,8 @@ class FakeCloud(ThreadingHTTPServer):
         self.approved: dict[str, dict] = {}
         self.rejected: set[str] = set()
         self.received: dict[str, list[dict]] = {}
+        self.users: dict[str, list[dict]] = {}  # who each approved terminal has stored, as last reported
+        self.users_supported = True  # False = an older site without the endpoint
         self.heartbeats: list[str | None] = []
         self.key_used = False
         self.revoked = False

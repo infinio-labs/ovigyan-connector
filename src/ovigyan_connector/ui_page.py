@@ -108,6 +108,14 @@ async function api(path, method = "GET", body) {
   if (!res.ok) { const err = new Error(data.error || "Something went wrong."); err.status = res.status; throw err; }
   return data;
 }
+function span(seconds) {
+  const m = Math.round(seconds / 60);
+  if (m < 60) return m + " min";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + " h" + (m % 60 ? " " + (m % 60) + " min" : "");
+  const days = Math.floor(h / 24);
+  return days + " d" + (h % 24 ? " " + (h % 24) + " h" : "");
+}
 function msg(el, text, kind) { el.replaceChildren(); if (!text) return; const d = document.createElement("div"); d.className = "msg " + kind; d.textContent = text; el.append(d); }
 function show(el, on) { el.hidden = !on; }
 function pill(text, kind) { $("pillText").textContent = text; $("pill").className = "pill " + kind; }
@@ -156,6 +164,13 @@ function render(s) {
     const chip = document.createElement("span"); chip.className = "chip " + kind; chip.textContent = word;
     const note = document.createElement("div"); note.className = "muted"; note.textContent = info.message + (info.queued ? " (" + info.queued + " waiting to send)" : "");
     left.append(name, where, document.createElement("br"), chip, note);
+    if (d.clockOffsetSeconds != null && Math.abs(d.clockOffsetSeconds) > 300) {
+      const off = document.createElement("div"); off.className = "muted";
+      off.textContent = "Its clock is " + span(Math.abs(d.clockOffsetSeconds)) + (d.clockOffsetSeconds > 0 ? " ahead of" : " behind") + " this PC, so punches get the wrong time. ";
+      const fix = document.createElement("button"); fix.className = "link"; fix.type = "button"; fix.textContent = "Set to PC time";
+      fix.addEventListener("click", async () => { fix.disabled = true; try { await api("/api/devices/" + encodeURIComponent(d.id) + "/time", "POST", {}); refresh(); } catch (e) { fix.disabled = false; alert(e.message); } });
+      off.append(fix); left.append(off);
+    }
     const rm = document.createElement("button"); rm.className = "link"; rm.type = "button"; rm.textContent = "Remove";
     rm.addEventListener("click", async () => { if (!confirm("Remove this terminal from this PC?")) return; try { await api("/api/devices/" + encodeURIComponent(d.id), "DELETE"); refresh(); } catch (e) { alert(e.message); } });
     row.append(left, rm); list.append(row);

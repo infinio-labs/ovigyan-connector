@@ -1,8 +1,11 @@
-"""Fake eSSL/ZK terminal: speaks just enough of the ZK TCP protocol for pyzk's get_attendance().
+"""Fake eSSL/ZK terminal: speaks just enough of the ZK TCP protocol for pyzk's get_attendance(), get_users(),
+get_time() and set_time().
 
 Library:  with FakeZkDevice(records) as dev: ... dev.port ...; dev.records is mutable.
 Script:   python tests/fake_zk_device.py --port 4370 --records rows.json
 Each record: {"uid": int, "user_id": "42", "timestamp": "2026-09-10T08:00:00", "punch": 0, "status": 1}
+Each user:   {"uid": int, "user_id": "42", "name": "Aarav Sharma"}
+Clock:       dev.clock is the terminal's own time (naive); None means the machine's local time. set_time() changes it.
 """
 from __future__ import annotations
 
@@ -17,11 +20,22 @@ from datetime import datetime
 CMD_CONNECT, CMD_EXIT, CMD_GET_FREE_SIZES, CMD_FREE_DATA = 1000, 1001, 50, 1502
 CMD_OPTIONS_RRQ, CMD_GET_VERSION, CMD_AUTH, CMD_ACK_UNAUTH = 11, 1100, 1102, 2005
 CMD_READ_BUFFER, CMD_ACK_OK, CMD_DATA = 1503, 2000, 1501
+CMD_GET_TIME, CMD_SET_TIME, CMD_USERTEMP_RRQ = 201, 202, 9
 
 
 def encode_time(value: datetime) -> bytes:
     t = ((((value.year - 2000) * 12 + value.month - 1) * 31 + value.day - 1) * 24 + value.hour) * 60 + value.minute
     return struct.pack("<I", t * 60 + value.second)
+
+
+def decode_time(raw: bytes) -> datetime:
+    t = struct.unpack("<I", raw[:4])[0]
+    second, t = t % 60, t // 60
+    minute, t = t % 60, t // 60
+    hour, t = t % 24, t // 24
+    day, t = t % 31 + 1, t // 31
+    month, year = t % 12 + 1, t // 12 + 2000
+    return datetime(year, month, day, hour, minute, second)
 
 
 def _checksum(packet: bytes) -> int:
@@ -55,6 +69,23 @@ def _attendance_blob(records: list[dict]) -> bytes:
     return struct.pack("<I", len(rows)) + rows  # 40-byte rows: pyzk derives size from total/records
 
 
+def _user_blob(users: list[dict]) -> bytes:
+    rows = b"".join(
+        struct.pack(
+            "<HB8s24sIx7sx24s",
+            int(u["uid"]),
+            0,
+            b"",
+            str(u.get("name", "")).encode(),
+            0,
+            b"",
+            str(u["user_id"]).encode(),
+        )
+        for u in users
+    )
+    return struct.pack("<I", len(rows)) + rows
+
+
 class _Handler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         records = self.server.device.records  # type: ignore[attr-defined]
@@ -83,10 +114,20 @@ class _Handler(socketserver.BaseRequestHandler):
                 self.request.sendall(_reply(CMD_ACK_OK, session, reply_id, device.firmware.encode() + b"\x00"))
             elif command == CMD_GET_FREE_SIZES:
                 fields = [0] * 20
+                fields[4] = len(device.users)  # users
                 fields[8] = len(records)  # records
                 self.request.sendall(_reply(CMD_ACK_OK, session, reply_id, struct.pack("<20i", *fields)))
             elif command == CMD_READ_BUFFER:
-                self.request.sendall(_reply(CMD_DATA, session, reply_id, _attendance_blob(records)))
+                # The request names what to read: the command after a leading flag byte (9 = users, else attendance).
+                wanted = struct.unpack("<h", body[9:11])[0] if len(body) >= 11 else 0
+                blob = _user_blob(device.users) if wanted == CMD_USERTEMP_RRQ else _attendance_blob(records)
+                self.request.sendall(_reply(CMD_DATA, session, reply_id, blob))
+            elif command == CMD_GET_TIME:
+                now = device.clock if device.clock is not None else datetime.now()
+                self.request.sendall(_reply(CMD_ACK_OK, session, reply_id, encode_time(now)))
+            elif command == CMD_SET_TIME:
+                device.clock = decode_time(body[8:12])
+                self.request.sendall(_reply(CMD_ACK_OK, session, reply_id))
             elif command == CMD_EXIT:
                 self.request.sendall(_reply(CMD_ACK_OK, session, reply_id))
                 return
@@ -116,11 +157,15 @@ class FakeZkDevice(socketserver.ThreadingTCPServer):
         model: str = "X2008",
         firmware: str = "Ver 6.60 Jan 1 2024",
         require_password: bool = False,
+        users: list[dict] | None = None,
+        clock: datetime | None = None,
     ):
         super().__init__((host, port), _Handler)
         self.device = self
         self.records = records if records is not None else []
         self.serial, self.model, self.firmware, self.require_password = serial, model, firmware, require_password
+        self.users = users if users is not None else []
+        self.clock = clock
         self.port = self.server_address[1]
 
     def __enter__(self) -> "FakeZkDevice":

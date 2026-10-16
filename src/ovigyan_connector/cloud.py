@@ -203,6 +203,10 @@ class CloudClient:
             if isinstance(item, dict)
         }
 
+    def report_users(self, serial: str, users: list[dict]) -> None:
+        """Tell the cloud who is stored on one of this connector's approved terminals (it keeps a list to link people from)."""
+        self._request("POST", "/api/connectors/devices/users", {"serialNumber": serial, "users": users})
+
     def config(self) -> CloudConfig:
         result = self._request("GET", "/api/connectors/config")
         devices: dict[str, ConfigDevice] = {}

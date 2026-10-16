@@ -4,7 +4,10 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 class ProbeError(Exception):
@@ -94,3 +97,51 @@ def _explain(error: Exception, host: str, port: int) -> ProbeError:
         "unreachable",
         f"Can't reach {host}:{port}. Check the IP address, that the terminal is switched on, and that this PC is on the same network.",
     )
+
+
+@contextmanager
+def connected(host: str, port: int = 4370, password: int = 0, timeout: int = 10):
+    """A connection to a terminal for the length of a `with`; any terminal problem inside it raises ProbeError."""
+    host, port = validate_address(host, port)
+    try:
+        from zk import ZK
+        from zk.exception import ZKError
+    except ImportError as error:  # pragma: no cover - the package pins pyzk
+        raise ProbeError("unsupported", "A required component (pyzk) is missing from this installation.") from error
+    connection = None
+    try:
+        connection = ZK(host, port=port, timeout=timeout, password=password).connect()
+        yield connection
+    except (ZKError, OSError, socket.timeout) as error:
+        raise _explain(error, host, port) from None
+    finally:
+        if connection is not None:
+            try:
+                connection.disconnect()
+            except Exception:  # noqa: BLE001 - closing a half-open connection is best effort
+                pass
+
+
+def clock_offset(host: str, port: int, password: int, timeout: int, timezone_name: str) -> int:
+    """Whole seconds the terminal's clock is ahead of this PC's (negative: behind). Terminals keep local time, read in `timezone_name`."""
+    with connected(host, port, password, timeout) as connection:
+        terminal_time = connection.get_time()
+    zone = ZoneInfo(timezone_name)
+    return round((terminal_time.replace(tzinfo=zone) - datetime.now(zone)).total_seconds())
+
+
+def set_clock(host: str, port: int, password: int, timeout: int, timezone_name: str) -> None:
+    """Set the terminal's clock to this PC's time, as local time in `timezone_name`."""
+    with connected(host, port, password, timeout) as connection:
+        connection.set_time(datetime.now(ZoneInfo(timezone_name)).replace(tzinfo=None))
+
+
+def read_users(host: str, port: int, password: int, timeout: int) -> list[dict]:
+    """The people stored on the terminal as `{userId, name}`. A blank name is blank (pyzk invents "NN-<id>" for it)."""
+    with connected(host, port, password, timeout) as connection:
+        users = connection.get_users()
+    return [
+        {"userId": str(user.user_id), "name": "" if user.name == f"NN-{user.user_id}" else str(user.name)}
+        for user in users
+        if str(user.user_id).strip()
+    ]

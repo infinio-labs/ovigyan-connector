@@ -21,7 +21,7 @@ from .adapters import EsslX2008Adapter
 from .delivery import deliver
 from .branding import contrast_text, fetch_logo
 from .cloud import CloudClient, CloudConfig, CloudError, normalize_server_url
-from .devices import DeviceInfo, ProbeError, probe, validate_address
+from .devices import DeviceInfo, ProbeError, clock_offset, probe, read_users, set_clock, validate_address
 from .events import EventEnvelope
 from .outbox import Outbox
 from .updater import Outcome, Policy, Updater
@@ -80,6 +80,11 @@ class ConnectorService:
         probe_timeout: int | None = None,
         logo_fetcher: Callable[[str], str | None] = fetch_logo,
         updater: Updater | None = None,
+        clock_reader: Callable[..., int] = clock_offset,
+        clock_setter: Callable[..., None] = set_clock,
+        user_reader: Callable[..., list[dict]] = read_users,
+        clock_check_seconds: float = 600,
+        users_check_seconds: float = 6 * 3600,
     ):
         self.store = store or StateStore()
         self.client_factory = client_factory
@@ -91,6 +96,13 @@ class ConnectorService:
         # What the last cycle learned about each terminal, sent with the next report so the site can show queue and errors.
         self._diagnostics: dict[str, dict] = {}
         self.restart_requested = False
+        # Two cheap extras on a reachable terminal, on their own schedule: how far its clock is off, and who is stored on it.
+        self.clock_reader, self.clock_setter, self.user_reader = clock_reader, clock_setter, user_reader
+        self.clock_check_seconds, self.users_check_seconds = clock_check_seconds, users_check_seconds
+        self._next_clock: dict[str, float] = {}
+        self._next_users: dict[str, float] = {}
+        self._users_sent: dict[str, tuple[str, float]] = {}  # serial -> (fingerprint of the list, when it was sent)
+        self._timezones: dict[str, str] = {}
         self.http_retries = http_retries
         self.retry_backoff_seconds = retry_backoff_seconds
         # How long to wait for a terminal when adding it. Windows takes a few seconds to give up on a closed port.
@@ -323,6 +335,8 @@ class ConnectorService:
             except Exception as error:  # noqa: BLE001 - a terminal that is off must not stop the others
                 reachable, problem = False, f"Can't reach the terminal at {device.host}:{device.port}."
                 print(f"ovigyan-connector: {device.host}: {error}", file=sys.stderr)
+            if reachable:
+                self._check_terminal(client, device, approved.timezone)
             transport = EventTransport(
                 state.server.rstrip("/") + "/api/attendance/device-events",  # type: ignore[union-attr]
                 "",
@@ -349,6 +363,47 @@ class ConnectorService:
             return self._status(device, OK, "Working.", sent=sent, queued=outbox.count())
         finally:
             outbox.close()
+
+    def _check_terminal(self, client: CloudClient, device: LocalDevice, timezone_name: str) -> None:
+        """How far the terminal's clock is off, and who is stored on it. Neither may ever stop punches being delivered."""
+        serial = device.serial or ""
+        self._timezones[serial] = timezone_name
+        now = time.monotonic()
+        try:
+            if now >= self._next_clock.get(serial, 0):
+                self._next_clock[serial] = now + self.clock_check_seconds
+                offset = self.clock_reader(device.host, device.port, device.password, 10, timezone_name)
+                self._diagnostics.setdefault(serial, {})["clockOffsetSeconds"] = offset
+            if now >= self._next_users.get(serial, 0):
+                self._next_users[serial] = now + self.users_check_seconds
+                users = self.user_reader(device.host, device.port, device.password, 10)
+                fingerprint = hashlib.sha1(json.dumps(sorted((u["userId"], u["name"]) for u in users)).encode()).hexdigest()
+                last = self._users_sent.get(serial)
+                # An unchanged list is sent again only once a day (the site keeps what it has), so it never chatters.
+                if last is None or last[0] != fingerprint or now - last[1] >= 24 * 3600:
+                    try:
+                        client.report_users(serial, users)
+                    except CloudError:
+                        self._next_users[serial] = now + 300  # try again soon; an older site without the endpoint just waits
+                        raise
+                    self._users_sent[serial] = (fingerprint, now)
+        except (ProbeError, CloudError, OSError) as error:
+            print(f"ovigyan-connector: {device.host}: {error}", file=sys.stderr)
+
+    def set_device_clock(self, device_id: str) -> int:
+        """Set a terminal's clock to this PC's time and return how far off it is afterwards (about zero)."""
+        with self._lock:
+            device = next((d for d in self.store.load().devices if d.id == device_id), None)
+        if device is None:
+            raise ProbeError("not_found", "No terminal with that id.")
+        serial = device.serial or ""
+        zone = self._timezones.get(serial, "Asia/Kolkata")
+        self.clock_setter(device.host, device.port, device.password, 10, zone)
+        offset = self.clock_reader(device.host, device.port, device.password, 10, zone)
+        self._diagnostics.setdefault(serial, {})["clockOffsetSeconds"] = offset
+        self._next_clock[serial] = time.monotonic() + self.clock_check_seconds
+        self.request_cycle()  # so the site hears at once
+        return offset
 
     def _finish(self, report: CycleReport) -> CycleReport:
         """Leave a note for whatever is showing the status; it holds nothing secret."""
@@ -383,7 +438,10 @@ class ConnectorService:
             "brand": self._brand_summary(state.branding),
             "update": self.updater.state(),
             "devices": [
-                {"id": d.id, "host": d.host, "port": d.port, "serial": d.serial, "model": d.model, "firmware": d.firmware}
+                {
+                    "id": d.id, "host": d.host, "port": d.port, "serial": d.serial, "model": d.model, "firmware": d.firmware,
+                    "clockOffsetSeconds": self._diagnostics.get(d.serial or "", {}).get("clockOffsetSeconds"),
+                }
                 for d in state.devices
             ],
             "lastCycle": last,

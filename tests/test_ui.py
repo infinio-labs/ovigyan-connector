@@ -257,3 +257,34 @@ def test_the_page_shows_the_connection_details():
     for fact in ("cSite", "cName", "cStatus", "cLast", "cDevices", "cVersion"):
         assert f'id="{fact}"' in PAGE
     assert 'id="connCard"' in PAGE and 'id="unpair"' in PAGE
+
+
+class TestTerminalClock:
+    def test_the_page_offers_to_set_a_wrong_clock_and_the_route_does_it(self, ui, cloud):
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        behind = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None, microsecond=0) - timedelta(hours=2)
+        with FakeZkDevice([], serial="SN9", clock=behind) as zk:
+            assert jcall(ui, "POST", "/api/pair", {"server": cloud.url, "key": PAIR_KEY})[0] == 200
+            status, added = jcall(ui, "POST", "/api/devices", {"host": "127.0.0.1", "port": zk.port})
+            assert status == 200
+            cloud.approve("SN9")
+            ui.service.run_cycle()
+
+            status, shown = jcall(ui, "GET", "/api/status")
+            assert shown["devices"][0]["clockOffsetSeconds"] < -7000
+
+            status, result = jcall(ui, "POST", f"/api/devices/{added['device']['id']}/time", {})
+            assert status == 200 and abs(result["offsetSeconds"]) <= 5
+            assert abs((zk.clock - datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)).total_seconds()) <= 5
+
+    def test_an_unknown_terminal_is_a_plain_error_and_a_page_without_the_secret_cannot_do_it(self, ui):
+        status, body = jcall(ui, "POST", "/api/devices/nope/time", {})
+        assert status == 400 and "No terminal" in body["error"]
+        assert call(ui, "POST", "/api/devices/nope/time", {}, cookie=False)[0].status in {401, 403}
+
+    def test_the_page_carries_the_clock_warning_and_its_button(self):
+        from ovigyan_connector.ui_page import PAGE
+
+        assert "Set to PC time" in PAGE and "clockOffsetSeconds" in PAGE
