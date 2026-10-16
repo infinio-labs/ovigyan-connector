@@ -1,9 +1,22 @@
 """A stand-in for the Ovigyan connector API, in memory, with the same shapes as the real endpoints."""
 from __future__ import annotations
 
+import io
 import json
 import threading
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+def make_backup_zip(format_version: int = 1, with_manifest: bool = True, rows: int = 3) -> bytes:
+    """What the site streams as the school's copy: a manifest, a README and one CSV per table."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        if with_manifest:
+            archive.writestr("manifest.json", json.dumps({"format": format_version, "files": [{"table": "students", "rows": rows}]}))
+        archive.writestr("README.txt", "A copy of your school's data.")
+        archive.writestr("data/students.csv", "id,name\n" + "".join(f"{i},Student {i}\n" for i in range(rows)))
+    return buffer.getvalue()
+
 
 PAIR_KEY = "OVG-AAAAA-BBBBB-CCCCC-DDDDD"
 CREDENTIAL = "ovigyan_conn_" + "a" * 64
@@ -39,6 +52,16 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, {"connectorId": "c1", "name": "Front office PC", "credential": CREDENTIAL, "pollSeconds": cloud.poll_seconds, **cloud.brand_block()})
         if self.headers.get("authorization") != f"Bearer {CREDENTIAL}" or cloud.revoked:
             return self._send(401, {"error": "Unauthorized."})
+        if self.path == "/api/connectors/backup":
+            if cloud.backup_status != 200:
+                return self._send(cloud.backup_status, {"error": cloud.backup_error})
+            data = cloud.backup_bytes if cloud.backup_bytes is not None else make_backup_zip()
+            self.send_response(200)
+            self.send_header("content-type", "application/zip")
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if self.path == "/api/connectors/config":
             return self._send(200, cloud.config())
         if self.path == "/api/connectors/devices":
@@ -85,6 +108,10 @@ class FakeCloud(ThreadingHTTPServer):
         self.received: dict[str, list[dict]] = {}
         self.users: dict[str, list[dict]] = {}  # who each approved terminal has stored, as last reported
         self.users_supported = True  # False = an older site without the endpoint
+        self.backup: bool | None = None  # None: an older site with no backup block; else whether a nightly copy is switched on
+        self.backup_status = 200  # what the backup endpoint answers
+        self.backup_error = "not allowed"
+        self.backup_bytes: bytes | None = None  # None: a good copy
         self.heartbeats: list[str | None] = []
         self.key_used = False
         self.revoked = False
@@ -111,6 +138,7 @@ class FakeCloud(ThreadingHTTPServer):
             "rejected": sorted(self.rejected),
             **self.brand_block(),
             **({} if self.update is None else {"update": self.update}),
+            **({} if self.backup is None else {"backup": {"enabled": self.backup}}),
         }
 
     def brand_block(self) -> dict:

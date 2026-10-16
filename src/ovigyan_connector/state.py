@@ -52,6 +52,8 @@ class State:
     devices: list[LocalDevice] = field(default_factory=list)
     # The school's look from its Ovigyan site: name, color, logo_url, logo_png (base64). Empty = Ovigyan defaults.
     branding: dict = field(default_factory=dict)
+    # Where the school's nightly copy is kept on this PC. None: a "backups" folder in the connector's own folder.
+    backup_dir: str | None = None
 
     @property
     def paired(self) -> bool:

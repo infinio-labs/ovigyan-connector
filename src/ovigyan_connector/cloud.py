@@ -18,6 +18,7 @@ from .branding import parse_branding
 from .updater import Policy
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+MAX_BACKUP_BYTES = 20 * 1024**3  # a school's copy is far smaller; this only stops a runaway stream
 
 
 class CloudError(Exception):
@@ -85,6 +86,7 @@ class CloudConfig:
     rejected: set[str] = field(default_factory=set)
     branding: dict | None = None  # None: the site did not send a block at all
     update: Policy | None = None  # None: an older site that has no opinion on versions
+    backup_enabled: bool = False  # the school switched on a nightly copy of its data to this PC (older sites: never)
 
 
 def _parse_instant(value: object) -> datetime | None:
@@ -203,6 +205,50 @@ class CloudClient:
             if isinstance(item, dict)
         }
 
+    def download_backup(self, destination, max_bytes: int = MAX_BACKUP_BYTES, timeout: int = 120) -> int:
+        """Stream the school's data (a ZIP) to `destination` and return its size. Raises CloudError; a partly written
+        file is left for the caller to remove."""
+        if not self.credential:
+            raise CloudError("unauthorized", "This connector is not paired yet.")
+        request = urllib.request.Request(
+            self.server + "/api/connectors/backup",
+            headers={
+                "accept": "application/zip",
+                "authorization": f"Bearer {self.credential}",
+                "x-connector-version": __version__,
+                "x-connector-os": _os_name(),
+                "x-connector-hostname": socket.gethostname(),
+            },
+        )
+        total = 0
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response, open(destination, "wb") as out:
+                while chunk := response.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise CloudError("bad_response", "The copy is larger than expected, so it was stopped.")
+                    out.write(chunk)
+        except urllib.error.HTTPError as error:
+            raise self._map_backup_error(error) from None
+        except (urllib.error.URLError, TimeoutError, http.client.HTTPException, ConnectionError) as error:
+            raise CloudError("unreachable", f"The connection to {self.server} dropped while the copy was coming ({error}).") from None
+        return total
+
+    @staticmethod
+    def _map_backup_error(error: urllib.error.HTTPError) -> CloudError:
+        try:
+            detail = json.loads(error.read()).get("error", "")
+        except (ValueError, AttributeError, OSError):
+            detail = ""
+        detail = detail if isinstance(detail, str) else ""
+        if error.code == 401:
+            return CloudError("unauthorized", "The school's Ovigyan site no longer accepts this connector. Pair it again.", 401)
+        if error.code == 403:
+            return CloudError("backup_off", detail or "A nightly copy to this PC is not switched on in Ovigyan.", 403)
+        if error.code == 429:
+            return CloudError("backup_busy", detail or "The site is busy or a copy was taken recently. Try again later.", 429)
+        return CloudError("server", detail or f"The server had a problem (HTTP {error.code}).", error.code)
+
     def report_users(self, serial: str, users: list[dict]) -> None:
         """Tell the cloud who is stored on one of this connector's approved terminals (it keeps a list to link people from)."""
         self._request("POST", "/api/connectors/devices/users", {"serialNumber": serial, "users": users})
@@ -229,4 +275,5 @@ class CloudClient:
             rejected={str(value) for value in result.get("rejected", [])},
             branding=parse_branding(result["branding"]) if "branding" in result else None,
             update=_parse_policy(result.get("update")),
+            backup_enabled=isinstance(result.get("backup"), dict) and result["backup"].get("enabled") is True,
         )
