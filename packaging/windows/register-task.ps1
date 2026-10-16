@@ -58,5 +58,19 @@ $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+
+# The notification-area icon, as a task that belongs to the Users group and has no trigger: running it starts the icon in
+# the session of whoever is signed in, which is how setup and an automatic update (both run as SYSTEM, with no desktop of
+# their own) put the icon back after closing it. The icon takes a one-per-user lock, so starting it again is harmless.
+$iconTaskName = 'Ovigyan Connector Icon'
+$iconArguments = '-NoProfile -WindowStyle Hidden -Command "Start-Process -WindowStyle Hidden -FilePath ''{0}'' -ArgumentList ''tray''"' -f $ExecutablePath
+$iconAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $iconArguments
+$iconSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+$iconPrincipal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited
+Register-ScheduledTask -TaskName $iconTaskName -Action $iconAction -Settings $iconSettings -Principal $iconPrincipal -Force | Out-Null
 Write-Host "Registered $taskName"
-if ($StartNow) { Start-ScheduledTask -TaskName $taskName }
+if ($StartNow) {
+    Start-ScheduledTask -TaskName $taskName
+    # Nobody may be signed in (a silent install overnight); then there is no icon to show and this does nothing.
+    try { Start-ScheduledTask -TaskName $iconTaskName } catch { Write-Host "Icon task not started: $($_.Exception.Message)" }
+}

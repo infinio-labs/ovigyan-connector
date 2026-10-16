@@ -128,6 +128,10 @@ jobs:
           if ($okCode -ne 0) { Get-Content install.log -Tail 60; throw "install failed: $okCode" }
           $t = Get-ScheduledTask -TaskName $task
           if ($t.Settings.ExecutionTimeLimit -ne 'PT0S') { throw "task has a time limit: $($t.Settings.ExecutionTimeLimit)" }
+          # The icon has its own on-demand task for the Users group (setup and automatic updates start it from there).
+          $icon = Get-ScheduledTask -TaskName 'Ovigyan Connector Icon'
+          if ($icon.Principal.GroupId -notmatch 'Users|S-1-5-32-545') { throw "icon task is not for the Users group: $($icon.Principal.GroupId)" }
+          if ($icon.Triggers.Count -ne 0) { throw 'the icon task must have no trigger of its own (the Startup shortcut starts it at sign-in)' }
           # The settings folder is for SYSTEM and administrators only.
           $who = (Get-Acl $home_).Access | ForEach-Object { $_.IdentityReference.Value }
           $extra = $who | Where-Object { $_ -notmatch 'SYSTEM|Administrators' }
@@ -215,6 +219,7 @@ jobs:
           if ($again -ne 0) { Get-Content upgrade.log -Tail 60; throw "reinstall failed: $again" }
           $unCode = Run-Exe "$env:ProgramFiles\Ovigyan Connector\unins000.exe" ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'uninstall'
           if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'task not removed on uninstall' }
+          if (Get-ScheduledTask -TaskName 'Ovigyan Connector Icon' -ErrorAction SilentlyContinue) { throw 'icon task not removed on uninstall' }
           if (-not (Test-Path "$home_\ui-token")) { throw 'uninstall removed the settings folder (it must keep them)' }
       - name: Installer logs
         if: failure() && matrix.name == 'windows'

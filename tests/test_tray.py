@@ -129,3 +129,20 @@ def test_the_menu_is_dashboard_status_and_exit(tmp_path, monkeypatch):
     assert exit_item.text == "Exit"
     exit_item.action(seen["icon"])
     assert seen["stopped"]
+
+
+def test_a_second_icon_does_not_start_while_the_first_is_showing(tmp_path):
+    lock = tmp_path / "tray.lock"
+    first = tray.acquire_single_instance(lock)
+    assert first is not None
+    assert tray.acquire_single_instance(lock) is None  # an icon already holds it
+    first.close()  # the lock goes when the first icon's process ends
+    again = tray.acquire_single_instance(lock)
+    assert again is not None
+    again.close()
+
+
+def test_the_tray_command_exits_quietly_when_an_icon_is_already_showing(monkeypatch):
+    monkeypatch.setattr(tray, "acquire_single_instance", lambda: None)
+    monkeypatch.setitem(sys.modules, "pystray", None)  # it must not even try to draw an icon
+    assert tray.run_tray() == 0
