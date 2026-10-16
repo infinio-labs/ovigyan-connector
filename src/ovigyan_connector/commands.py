@@ -53,6 +53,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--once", action="store_true")
     run.add_argument("--no-ui", action="store_true", help="do not serve the local page")
     run.add_argument("--ui-port", type=int, help=f"port for the local page (default {DEFAULT_UI_PORT})")
+    run.add_argument("--open", action="store_true", help="open the local page in the browser once it is up")
     update = sub.add_parser("update", help="update now to the version your Ovigyan site wants (this happens automatically)")
     update.add_argument("--target", help="install this version instead of what the site wants (support and testing)")
     sub.add_parser("self-test", help="check that this build starts (used before installing an update)")
@@ -133,7 +134,10 @@ def run_command(argv: list[str], service: ConnectorService | None = None) -> int
                     return 1
                 service.enable_wake()
                 server.start()
-                print(f"Local page: {open_url(server.port, server.token)}", flush=True)
+                page = open_url(server.port, server.token)
+                print(f"Local page: {page}", flush=True)
+                if args.open:
+                    webbrowser.open(page)
             for name in ("SIGINT", "SIGTERM"):
                 if hasattr(signal, name):
                     signal.signal(getattr(signal, name), lambda *_: stop.set())

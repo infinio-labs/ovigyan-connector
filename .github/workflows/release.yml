@@ -188,7 +188,8 @@ jobs:
               exit 1
             fi
           else
-            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --draft --prerelease
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --draft --prerelease \
+              --notes "**Installing on Windows:** download **ovigyan-connector-setup-${RELEASE_TAG#v}.exe** and run it. The other \`ovigyan-connector.exe\` is the bare program the installer and the updater use; it is not an installer. On Linux use \`ovigyan-connector-install.sh\`."
           fi
           mapfile -d '' files < <(find artifacts -type f -print0)
           test "${#files[@]}" -gt 0
