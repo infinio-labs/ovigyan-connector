@@ -7,6 +7,7 @@ import signal
 import socket
 import sys
 import threading
+import time
 import webbrowser
 
 from .cloud import CloudError
@@ -63,6 +64,7 @@ def _parser() -> argparse.ArgumentParser:
     opener = sub.add_parser("open", help="open the connector's page in your browser")
     opener.add_argument("--ui-port", type=int)
     opener.add_argument("--no-browser", action="store_true", help="only print the link")
+    opener.add_argument("--wait", type=int, default=0, metavar="SECONDS", help="wait this long for the connector to start (right after installing)")
     return parser
 
 
@@ -188,9 +190,14 @@ def run_command(argv: list[str], service: ConnectorService | None = None) -> int
         elif args.command == "open":
             port = _ui_port(args.ui_port)
             url = open_url(port, ui_token(service))
-            with socket.socket() as probe:
-                probe.settimeout(1)
-                running = probe.connect_ex(("127.0.0.1", port)) == 0
+            deadline = time.monotonic() + args.wait
+            while True:
+                with socket.socket() as probe:
+                    probe.settimeout(1)
+                    running = probe.connect_ex(("127.0.0.1", port)) == 0
+                if running or time.monotonic() >= deadline:
+                    break
+                time.sleep(1)
             if not running:
                 print("The connector is not running. Start it with:  ovigyan-connector run", file=sys.stderr)
             print(url)

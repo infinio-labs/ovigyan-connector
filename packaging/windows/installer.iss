@@ -45,7 +45,11 @@ Name: "{commondesktop}\{#AppName}"; Filename: "powershell.exe"; Parameters: "-No
 Name: "{commonstartup}\{#AppName} status icon"; Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -Command ""Start-Process -WindowStyle Hidden -FilePath '{app}\ovigyan-connector.exe' -ArgumentList 'tray'"""; IconFilename: "{app}\{#Exe}"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -Command ""Start-Process -WindowStyle Hidden -FilePath '{app}\ovigyan-connector.exe' -ArgumentList 'open'"""; Description: "Open {#AppName} now"; Flags: postinstall nowait skipifsilent
+; Straight after installing: the notification-area icon (it otherwise appears at the next sign-in), then the
+; dashboard, waiting for the background task to come up first. Silent installs (automatic updates, run as SYSTEM
+; with no desktop) start neither.
+Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -Command ""Start-Process -WindowStyle Hidden -FilePath '{app}\ovigyan-connector.exe' -ArgumentList 'tray'"""; Flags: nowait runhidden runasoriginaluser skipifsilent
+Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -Command ""Start-Process -WindowStyle Hidden -FilePath '{app}\ovigyan-connector.exe' -ArgumentList 'open','--wait','30'"""; Description: "Open the {#AppName} dashboard now"; Flags: postinstall nowait runhidden skipifsilent
 
 [UninstallRun]
 Filename: "cmd.exe"; Parameters: "/C set PSModulePath=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\unregister-task.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveTask"

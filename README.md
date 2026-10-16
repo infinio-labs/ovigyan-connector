@@ -12,6 +12,11 @@ background task and opens its page. The plain `ovigyan-connector.exe` next to it
 updater use, not an installer; started with a double-click it opens the same setup page, but it does not start by
 itself after a restart. On Linux use `ovigyan-connector-install.sh`.
 
+After installing, the connector runs in the background on its own (a task that starts with Windows and restarts itself if
+it stops) and an icon appears in the notification area. Right-click it for **Dashboard** and **Exit**; **Exit** closes
+the icon only, the connector keeps running. The dashboard is the connector's local page: the connection to your Ovigyan
+site (site, connector name, status, last check, version), setup (the connection key) and the terminals.
+
 ## Paired mode (recommended)
 
 Instead of environment variables, pair the connector with your Ovigyan site once and add terminals by IP.

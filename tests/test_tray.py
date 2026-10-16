@@ -91,3 +91,41 @@ def test_without_the_optional_packages_the_tray_says_what_to_install(tmp_path, m
     monkeypatch.setitem(sys.modules, "pystray", None)  # makes `import pystray` fail
     assert tray.run_tray(StateStore(tmp_path)) == 1
     assert "pystray" in capsys.readouterr().err
+
+
+def test_the_menu_is_dashboard_status_and_exit(tmp_path, monkeypatch):
+    """Right-click: Dashboard (also the double-click), what the connector is doing, and Exit. No other entries."""
+    seen = {}
+
+    class Menu:
+        SEPARATOR = "---"
+
+        def __init__(self, *items):
+            seen["items"] = items
+
+    class MenuItem:
+        def __init__(self, text, action, default=False, enabled=True):
+            self.text, self.action, self.default, self.enabled = text, action, default, enabled
+
+    class Icon:
+        def __init__(self, name, image, title, menu):
+            seen["icon"] = self
+
+        def run(self, setup=None):
+            pass  # no event loop in a test
+
+        def stop(self):
+            seen["stopped"] = True
+
+    monkeypatch.setitem(sys.modules, "pystray", type(sys)("pystray"))
+    sys.modules["pystray"].Menu, sys.modules["pystray"].MenuItem, sys.modules["pystray"].Icon = Menu, MenuItem, Icon
+    monkeypatch.setattr(tray, "make_icon", lambda *args, **kwargs: object())  # drawing needs Pillow; not under test
+    assert tray.run_tray(StateStore(tmp_path)) == 0
+
+    dashboard, status, line, exit_item = seen["items"]
+    assert (dashboard.text, dashboard.default) == ("Dashboard", True)
+    assert status.enabled is False and "Ovigyan" in status.text(None)
+    assert line == Menu.SEPARATOR
+    assert exit_item.text == "Exit"
+    exit_item.action(seen["icon"])
+    assert seen["stopped"]
