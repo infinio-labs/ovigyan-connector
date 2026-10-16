@@ -66,7 +66,14 @@ def test_something_else_listening_on_the_port_is_ignored(tmp_path):
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen()
-    threading.Thread(target=lambda: [listener.accept() for _ in range(3)], daemon=True).start()
+    def accept_a_few():
+        try:
+            for _ in range(3):
+                listener.accept()
+        except OSError:
+            pass  # the listener was closed by the test
+
+    threading.Thread(target=accept_a_few, daemon=True).start()
     try:
         assert service(tmp_path).discover(LOCAL, listener.getsockname()[1]) == []
     finally:

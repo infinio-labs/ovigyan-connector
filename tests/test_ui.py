@@ -308,3 +308,15 @@ class TestDiscoveryRoute:
 
         for needle in ('id="findBtn"', "/api/discover", "Enter its password", "Already added"):
             assert needle in PAGE
+
+
+class TestSupportInfo:
+    def test_the_page_asks_for_it_and_the_route_needs_the_secret(self, ui):
+        status, body = jcall(ui, "GET", "/api/support")
+        assert status == 200 and "Ovigyan Connector support information" in body["text"]
+        assert call(ui, "GET", "/api/support", cookie=False)[0].status in {401, 403}
+
+    def test_the_page_has_the_button_that_copies_it(self):
+        from ovigyan_connector.ui_page import PAGE
+
+        assert "Copy support info" in PAGE and "/api/support" in PAGE and "clipboard.writeText" in PAGE

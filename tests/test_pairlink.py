@@ -66,7 +66,14 @@ def test_open_with_a_link_prints_the_page_address_with_the_values_after_the_hash
     listener = socket.socket()
     listener.bind(("127.0.0.1", port))
     listener.listen()
-    threading.Thread(target=lambda: [listener.accept() for _ in range(2)], daemon=True).start()
+    def accept_two():
+        try:
+            for _ in range(2):
+                listener.accept()
+        except OSError:
+            pass  # the listener was closed by the test
+
+    threading.Thread(target=accept_two, daemon=True).start()
     try:
         code = cli.main(["--home", str(tmp_path), "open", "--ui-port", str(port), "--no-browser", "--link", LINK])
     finally:

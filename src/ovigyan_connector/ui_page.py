@@ -90,7 +90,7 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin
     <p id="empty" class="muted" hidden>No terminals yet. Press “Add a terminal” to start.</p>
   </section>
   <section id="connCard" class="card" hidden>
-    <div class="head"><div><h2>Connection</h2><p class="muted tight">How this PC is connected to <span class="prod">Ovigyan</span>.</p></div><button class="link" id="unpair" type="button">Disconnect</button></div>
+    <div class="head"><div><h2>Connection</h2><p class="muted tight">How this PC is connected to <span class="prod">Ovigyan</span>.</p></div><span class="row tight"><button class="link" id="support" type="button">Copy support info</button><button class="link" id="unpair" type="button">Disconnect</button></span></div>
     <dl class="facts">
       <dt>Site</dt><dd id="cSite"></dd>
       <dt>This connector</dt><dd id="cName"></dd>
@@ -228,6 +228,10 @@ $("findBtn").addEventListener("click", async () => {
     $("findMsg").textContent = r.terminals.length ? "" : "No terminals found. Check that they are switched on and on this PC's network, or add one by its IP address.";
     for (const t of r.terminals) $("found").append(foundRow(t));
   } catch (e) { $("findMsg").textContent = e.message; } finally { $("findBtn").disabled = false; }
+});
+$("support").addEventListener("click", async () => {
+  try { const r = await api("/api/support"); await navigator.clipboard.writeText(r.text); msg($("notice"), "Copied. Paste it into your message to whoever is helping. It holds no passwords or keys.", "good"); }
+  catch (e) { msg($("notice"), "Could not copy: " + e.message, "error"); }
 });
 $("unpair").addEventListener("click", async () => { if (!confirm("Disconnect this PC from Ovigyan? Terminals stay in the list.")) return; try { await api("/api/unpair", "POST", {}); refresh(); } catch (e) { alert(e.message); } });
 // A link from Ovigyan opens this page with the site and code in the address after #; fill them in and clear the address.

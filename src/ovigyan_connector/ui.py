@@ -171,6 +171,10 @@ class _Handler(BaseHTTPRequestHandler):
             if self._guard(False):
                 self._run(self.server.service.status)
             return
+        if url.path == "/api/support":
+            if self._guard(False):
+                self._run(lambda: {"text": self.server.service.support_info()})
+            return
         self._json(404, {"error": "Not found."})
 
     def do_POST(self) -> None:  # noqa: N802

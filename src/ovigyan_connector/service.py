@@ -8,6 +8,9 @@ import base64
 import hashlib
 import json
 import os
+import platform
+import re
+import socket
 import sys
 import threading
 import time
@@ -62,6 +65,14 @@ Reader = Callable[[LocalDevice, str], list[EventEnvelope]]
 
 def read_terminal(device: LocalDevice, timezone_name: str) -> list[EventEnvelope]:
     return EsslX2008Adapter(device.host, device.port, device.password, 10, timezone_name).read_events()
+
+
+_SECRETS = re.compile(r"ovigyan_conn_[0-9a-fA-F]+|ovigyan_dev_[0-9A-Za-z_-]+|OVG(?:-[A-Z0-9]{5}){4}|(?<=[?&#])(?:t|key)=[^\s&]+")
+
+
+def _redact(text: str) -> str:
+    """Remove anything that is a credential, a connection key or the page's secret link."""
+    return _SECRETS.sub("[removed]", text)
 
 
 def _utc_now() -> str:
@@ -201,6 +212,40 @@ class ConnectorService:
                 continue  # something else listens on this port; it is not a terminal we can use
             found.append({"host": host, "port": port, "serial": info.serial, "model": info.model, "known": False, "needsPassword": False})
         return found
+
+    def support_info(self, log_lines: int = 40) -> str:
+        """A plain summary to paste into a message to whoever is helping: what is installed, what it is connected to,
+        how each terminal is, and the end of the log. It never contains the connection credential or a connection key."""
+        status = self.status()
+        last = status.get("lastCycle") or {}
+        lines = [
+            "Ovigyan Connector support information",
+            f"Version: {status['version']}",
+            f"Computer: {socket.gethostname()} ({platform.system()} {platform.release()})",
+            f"Connected to: {status['server'] or 'nothing'}"
+            + (f' as "{status["connectorName"]}"' if status["paired"] else f" ({status['status']})"),
+            f"Last check: {last.get('at', 'not yet')} - {last.get('connector', '')} {last.get('message', '')}".rstrip(),
+            "",
+            "Terminals:" if status["devices"] else "Terminals: none added",
+        ]
+        by_id = {d.get("id"): d for d in last.get("devices", [])}
+        for device in status["devices"]:
+            seen = by_id.get(device["id"], {})
+            clock = device.get("clockOffsetSeconds")
+            lines.append(
+                f"- {device['model'] or 'Terminal'} {device['serial'] or '(unidentified)'} at {device['host']}:{device['port']}: "
+                f"{seen.get('state', 'not checked')} {seen.get('message', '')}"
+                + (f" (waiting to send: {seen['queued']})" if seen.get("queued") else "")
+                + (f" (clock {clock:+d} s)" if clock is not None else "")
+            )
+        log = self.store.home / "connector.log"
+        try:
+            tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-log_lines:]
+        except OSError:
+            tail = []
+        if tail:
+            lines += ["", f"End of the log ({len(tail)} lines):", *tail]
+        return _redact("\n".join(lines))
 
     def remove_device(self, device_id: str) -> bool:
         with self._lock:
