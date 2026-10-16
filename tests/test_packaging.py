@@ -140,3 +140,12 @@ def test_the_windows_installer_starts_the_icon_and_opens_the_dashboard_when_setu
     assert "runasoriginaluser" in tray_entry and "skipifsilent" in tray_entry and "postinstall" not in tray_entry
     dashboard = next(line for line in entries if "'open'" in line)
     assert "'--wait','30'" in dashboard and "postinstall" in dashboard and "skipifsilent" in dashboard
+
+
+def test_the_windows_installer_registers_the_pairing_link_and_quotes_what_it_is_given():
+    iss = (PACKAGING / "windows" / "installer.iss").read_text()
+    section = iss[iss.index("[Registry]") : iss.index("[Dirs]")]
+    assert 'Subkey: "ovigyan-connector"' in section and '"URL Protocol"' in section and "uninsdeletekey" in section
+    # The link is passed as one quoted argument to the program itself, never through a shell or PowerShell.
+    command = next(line for line in section.splitlines() if "shell\\open\\command" in line)
+    assert '""{app}\\{#Exe}"" ""%1""' in command and "powershell" not in command.lower()

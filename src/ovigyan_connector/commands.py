@@ -12,6 +12,7 @@ import webbrowser
 
 from .cloud import CloudError
 from .devices import ProbeError
+from .pairlink import LinkError, fragment, parse_pair_link
 from .service import ConnectorService, CycleReport
 from .state import StateStore
 from .ui import DEFAULT_UI_PORT, UiServer, open_url, ui_token
@@ -64,6 +65,7 @@ def _parser() -> argparse.ArgumentParser:
     opener = sub.add_parser("open", help="open the connector's page in your browser")
     opener.add_argument("--ui-port", type=int)
     opener.add_argument("--no-browser", action="store_true", help="only print the link")
+    opener.add_argument("--link", help="a pairing link from Ovigyan (ovigyan-connector://pair?...): open the page with it filled in")
     opener.add_argument("--wait", type=int, default=0, metavar="SECONDS", help="wait this long for the connector to start (right after installing)")
     return parser
 
@@ -190,6 +192,12 @@ def run_command(argv: list[str], service: ConnectorService | None = None) -> int
         elif args.command == "open":
             port = _ui_port(args.ui_port)
             url = open_url(port, ui_token(service))
+            if args.link:
+                try:
+                    url += fragment(*parse_pair_link(args.link))
+                except LinkError as error:
+                    print(str(error), file=sys.stderr)
+                    return 1
             deadline = time.monotonic() + args.wait
             while True:
                 with socket.socket() as probe:

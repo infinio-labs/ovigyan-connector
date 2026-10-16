@@ -230,7 +230,19 @@ $("findBtn").addEventListener("click", async () => {
   } catch (e) { $("findMsg").textContent = e.message; } finally { $("findBtn").disabled = false; }
 });
 $("unpair").addEventListener("click", async () => { if (!confirm("Disconnect this PC from Ovigyan? Terminals stay in the list.")) return; try { await api("/api/unpair", "POST", {}); refresh(); } catch (e) { alert(e.message); } });
-refresh(); setInterval(refresh, 3000);
+// A link from Ovigyan opens this page with the site and code in the address after #; fill them in and clear the address.
+const linked = new URLSearchParams(location.hash.slice(1));
+if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+async function applyLink() {
+  const server = linked.get("server"), key = linked.get("key");
+  if (!server || !key) return;
+  let s; try { s = await api("/api/status"); } catch (e) { return; }
+  if (s.paired) { msg($("notice"), "A link from Ovigyan offered a new connection code, but this PC is already connected to " + s.server + ". Press Disconnect first if you want to connect it to " + server + " instead.", "warn"); return; }
+  $("server").value = server; $("key").value = key;
+  msg($("pairMsg"), "Check the address above is your Ovigyan site, then press Connect.", "good");
+  $("pairBtn").focus();
+}
+refresh().then(applyLink); setInterval(refresh, 3000);
 // While a terminal is waiting for approval (or not checked yet), nudge the connector so approval shows within seconds.
 setInterval(async () => { if (document.hidden) return; try { const s = await api("/api/status"); const last = (s.lastCycle || {}).devices || []; if (s.paired && last.some((d) => d.state === "pending" || d.state === "unknown")) await api("/api/refresh", "POST", {}); } catch (e) {} }, 15000);
 </script>

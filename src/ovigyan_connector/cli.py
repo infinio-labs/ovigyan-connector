@@ -115,6 +115,15 @@ def run_once(test_events_path: str | None = None) -> int:
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     from .commands import COMMANDS, run_command
+    from .pairlink import is_link
+
+    # Windows hands over a link from the Ovigyan site as the only argument. Anything more is not from the site (a link
+    # that carried extra words must never be read as commands), so it is refused.
+    if arguments and is_link(arguments[0]):
+        if len(arguments) != 1:
+            print("ovigyan-connector: refusing a link that carries extra arguments.", file=sys.stderr)
+            return 2
+        return run_command(["open", "--link", arguments[0], "--wait", "30"])
 
     # Started with no instructions (a double-click) and nothing configured the old way: open the setup page.
     if not arguments and not any(os.environ.get(name, "").strip() for name in LEGACY_VARIABLES):
