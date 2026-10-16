@@ -74,6 +74,8 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin
   </section>
   <section id="devicesCard" class="card" hidden>
     <div class="head"><div><h2>Attendance terminals</h2><p class="muted tight">Add each terminal on this network. An administrator approves it in <span class="prod">Ovigyan</span>.</p></div><button class="primary" id="addToggle" type="button">Add a terminal</button></div>
+    <div class="row tight"><button id="findBtn" type="button">Find terminals on this network</button><span id="findMsg" class="muted" role="status"></span></div>
+    <div id="found"></div>
     <form id="addForm" hidden autocomplete="off">
       <label for="host">Terminal IP address</label>
       <input id="host" name="host" placeholder="192.168.1.50" required>
@@ -193,6 +195,39 @@ $("addForm").addEventListener("submit", async (ev) => {
     msg($("notice"), (r.existing ? "Updated " : "Added ") + (r.device.model || "terminal") + " " + r.device.serial + ". An administrator now approves it in " + product + " under Settings → Connectors.", "good");
     await refresh();
   } catch (e) { msg($("addMsg"), e.message, "error"); } finally { $("addBtn").disabled = false; }
+});
+function foundRow(t) {
+  const row = document.createElement("div"); row.className = "device";
+  const left = document.createElement("div");
+  const name = document.createElement("strong"); name.textContent = t.needsPassword ? "A terminal that needs its password" : (t.model || "Terminal") + " · " + (t.serial || "unidentified");
+  const where = document.createElement("span"); where.className = "muted"; where.textContent = t.host + ":" + t.port;
+  left.append(name, document.createElement("br"), where);
+  const action = document.createElement("div");
+  if (t.known) { const done = document.createElement("span"); done.className = "muted"; done.textContent = "Already added"; action.append(done); }
+  else {
+    const add = document.createElement("button"); add.type = "button"; add.className = "primary";
+    add.textContent = t.needsPassword ? "Enter its password" : "Add";
+    add.addEventListener("click", async () => {
+      if (t.needsPassword) { toggleAdd(true); $("host").value = t.host; $("port").value = String(t.port); $("password").focus(); return; }
+      add.disabled = true;
+      try {
+        const r = await api("/api/devices", "POST", {host: t.host, port: t.port});
+        action.replaceChildren(Object.assign(document.createElement("span"), {className: "muted", textContent: "Added"}));
+        msg($("notice"), "Added " + (r.device.model || "terminal") + " " + r.device.serial + ". An administrator now approves it in " + product + " under Settings → Connectors.", "good");
+        await refresh();
+      } catch (e) { add.disabled = false; msg($("findMsg"), e.message, "error"); }
+    });
+    action.append(add);
+  }
+  row.append(left, action); return row;
+}
+$("findBtn").addEventListener("click", async () => {
+  $("findBtn").disabled = true; $("found").replaceChildren(); $("findMsg").textContent = "Looking on this network…";
+  try {
+    const r = await api("/api/discover", "POST", {});
+    $("findMsg").textContent = r.terminals.length ? "" : "No terminals found. Check that they are switched on and on this PC's network, or add one by its IP address.";
+    for (const t of r.terminals) $("found").append(foundRow(t));
+  } catch (e) { $("findMsg").textContent = e.message; } finally { $("findBtn").disabled = false; }
 });
 $("unpair").addEventListener("click", async () => { if (!confirm("Disconnect this PC from Ovigyan? Terminals stay in the list.")) return; try { await api("/api/unpair", "POST", {}); refresh(); } catch (e) { alert(e.message); } });
 refresh(); setInterval(refresh, 3000);

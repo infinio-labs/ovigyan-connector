@@ -21,6 +21,7 @@ from .adapters import EsslX2008Adapter
 from .delivery import deliver
 from .branding import contrast_text, fetch_logo
 from .cloud import CloudClient, CloudConfig, CloudError, normalize_server_url
+from .discovery import DEFAULT_PORT, local_networks, open_hosts
 from .devices import DeviceInfo, ProbeError, clock_offset, probe, read_users, set_clock, validate_address
 from .events import EventEnvelope
 from .outbox import Outbox
@@ -178,6 +179,28 @@ class ConnectorService:
             except CloudError:
                 pass  # the next cycle reports it
         return device, existing is not None
+
+    def discover(self, networks: list | None = None, port: int | None = None) -> list[dict]:
+        """Terminals answering on this PC's own network, each marked as already added or not. A terminal that wants a
+        communication password is listed too (without its serial), since staff can add it by typing the password."""
+        port = port or DEFAULT_PORT
+        with self._lock:
+            known = self.store.load().devices
+        by_host = {(device.host, device.port): device for device in known}
+        found: list[dict] = []
+        for host in open_hosts(networks if networks is not None else local_networks(), port):
+            already = by_host.get((host, port))
+            if already:
+                found.append({"host": host, "port": port, "serial": already.serial, "model": already.model, "known": True, "needsPassword": False})
+                continue
+            try:
+                info = self.prober(host, port, 0, self.probe_timeout)
+            except ProbeError as error:
+                if error.kind == "wrong_password":
+                    found.append({"host": host, "port": port, "serial": None, "model": None, "known": False, "needsPassword": True})
+                continue  # something else listens on this port; it is not a terminal we can use
+            found.append({"host": host, "port": port, "serial": info.serial, "model": info.model, "known": False, "needsPassword": False})
+        return found
 
     def remove_device(self, device_id: str) -> bool:
         with self._lock:

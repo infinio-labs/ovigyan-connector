@@ -288,3 +288,23 @@ class TestTerminalClock:
         from ovigyan_connector.ui_page import PAGE
 
         assert "Set to PC time" in PAGE and "clockOffsetSeconds" in PAGE
+
+
+class TestDiscoveryRoute:
+    def test_finding_terminals_lists_them_and_the_page_can_add_one(self, ui, cloud, monkeypatch):
+        import ipaddress
+
+        from ovigyan_connector import service as service_module
+
+        with FakeZkDevice([], serial="SN5", model="X2008") as zk:
+            monkeypatch.setattr(service_module, "local_networks", lambda: [ipaddress.ip_network("127.0.0.0/29")])
+            monkeypatch.setattr(service_module, "DEFAULT_PORT", zk.port)
+            status, body = jcall(ui, "POST", "/api/discover", {})
+            assert status == 200 and [t["serial"] for t in body["terminals"]] == ["SN5"]
+            assert call(ui, "POST", "/api/discover", {}, cookie=False)[0].status in {401, 403}
+
+    def test_the_page_has_the_search_button_and_the_password_path(self):
+        from ovigyan_connector.ui_page import PAGE
+
+        for needle in ('id="findBtn"', "/api/discover", "Enter its password", "Already added"):
+            assert needle in PAGE
