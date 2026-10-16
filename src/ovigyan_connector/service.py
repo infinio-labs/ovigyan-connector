@@ -28,7 +28,7 @@ from .discovery import DEFAULT_PORT, local_networks, open_hosts
 from .devices import DeviceInfo, ProbeError, clock_offset, probe, read_users, set_clock, validate_address
 from .events import EventEnvelope
 from .outbox import Outbox
-from .updater import Outcome, Policy, Updater
+from .updater import PROBATION_FAULTS, Outcome, Policy, Updater
 from . import telemetry
 from .state import LocalDevice, State, StateStore
 from .transport import EventTransport
@@ -115,6 +115,7 @@ class ConnectorService:
         self._next_users: dict[str, float] = {}
         self._users_sent: dict[str, tuple[str, float]] = {}  # serial -> (fingerprint of the list, when it was sent)
         self._timezones: dict[str, str] = {}
+        self._probation_faults = 0  # cycles that raised an error since the last update (see check_probation)
         self.http_retries = http_retries
         self.retry_backoff_seconds = retry_backoff_seconds
         # How long to wait for a terminal when adding it. Windows takes a few seconds to give up on a closed port.
@@ -529,15 +530,40 @@ class ConnectorService:
                 if report.connector in {"unpaired", "revoked"}:
                     wait = 15.0  # idle until someone pairs, but notice it quickly
                 failures = 0 if report.connector != "offline" else failures + 1
-                if self.check_update(report, stop):
+                if self.check_probation(report, stop) or self.check_update(report, stop):
                     return
             except Exception as error:  # noqa: BLE001 - the service must outlive any single bad cycle
                 failures += 1
+                self._probation_faults += 1
                 print(f"ovigyan-connector: {error}", file=sys.stderr)
                 telemetry.capture(error)
+                if self.check_probation(None, stop):
+                    return
             if failures:
                 wait = min(300.0, wait * (2 ** min(failures, 3)))
             self._pause(stop, wait if fixed_wait is None else fixed_wait)
+
+    def check_probation(self, report: CycleReport | None, stop: threading.Event | None = None) -> bool:
+        """A version that has just been installed must prove itself. Reaching the site confirms it. If it keeps failing with
+        errors of its own (not a lost connection) for the whole probation, the version before it is put back.
+        True means: stop now, a restart follows."""
+        if self.updater.on_probation() is None:
+            self._probation_faults = 0
+            return False
+        if report is not None and report.connector == "ok":
+            self.updater.confirm()
+            self._probation_faults = 0
+            return False
+        if self._probation_faults >= PROBATION_FAULTS and self.updater.probation_over():
+            outcome = self.updater.roll_back()
+            print(f"ovigyan-connector: rollback: {outcome.message}", file=sys.stderr, flush=True)
+            telemetry.capture(f"rolled back: {outcome.message}")
+            if outcome.status == "restart":
+                self.restart_requested = True
+                if stop is not None:
+                    stop.set()
+                return True
+        return False
 
     def check_update(self, report: CycleReport, stop: threading.Event | None = None) -> bool:
         """After a cycle, move to the version the site wants when it is safe. True means: stop now, a restart follows."""
