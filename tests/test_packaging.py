@@ -140,3 +140,25 @@ def test_the_windows_installer_starts_the_icon_and_opens_the_dashboard_when_setu
     assert "runasoriginaluser" in tray_entry and "skipifsilent" in tray_entry and "postinstall" not in tray_entry
     dashboard = next(line for line in entries if "'open'" in line)
     assert "'--wait','30'" in dashboard and "postinstall" in dashboard and "skipifsilent" in dashboard
+
+
+def test_the_windows_installer_registers_the_pairing_link_and_quotes_what_it_is_given():
+    iss = (PACKAGING / "windows" / "installer.iss").read_text()
+    section = iss[iss.index("[Registry]") : iss.index("[Dirs]")]
+    assert 'Subkey: "ovigyan-connector"' in section and '"URL Protocol"' in section and "uninsdeletekey" in section
+    # The link is passed as one quoted argument to the program itself, never through a shell or PowerShell.
+    command = next(line for line in section.splitlines() if "shell\\open\\command" in line)
+    assert '""{app}\\{#Exe}"" ""%1""' in command and "powershell" not in command.lower()
+
+
+def test_the_icon_has_an_on_demand_task_for_users_that_setup_and_updates_start_and_uninstall_removes():
+    register = (PACKAGING / "windows" / "register-task.ps1").read_text()
+    assert "'Ovigyan Connector Icon'" in register
+    icon_part = register[register.index("$iconTaskName"):]
+    assert "-GroupId 'S-1-5-32-545'" in icon_part and "-RunLevel Limited" in icon_part
+    assert "-Trigger" not in icon_part.split("Register-ScheduledTask -TaskName $iconTaskName")[0]  # on demand: no trigger
+    # Started with the main task at the end of setup, and a failure (nobody signed in) must not fail the install.
+    start = register[register.index("if ($StartNow)") :]
+    assert "Start-ScheduledTask -TaskName $iconTaskName" in start and "catch" in start
+    unregister = (PACKAGING / "windows" / "unregister-task.ps1").read_text()
+    assert "'Ovigyan Connector Icon'" in unregister and "Unregister-ScheduledTask -TaskName $iconTaskName" in unregister

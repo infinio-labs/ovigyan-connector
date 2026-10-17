@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -97,7 +98,33 @@ def open_page() -> None:
     subprocess.Popen(command, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
+def acquire_single_instance(path: Path | None = None):
+    """Take this user's one-icon lock, or return None when another icon already holds it. The lock goes with the process.
+
+    The icon is started from several places (sign-in, the end of setup, after an update); whichever comes second just
+    exits, so there is never a pair of icons. The temp folder is per user on Windows, so each user gets their own.
+    """
+    handle = open(path or Path(tempfile.gettempdir()) / "ovigyan-connector-tray.lock", "a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
 def run_tray(store: StateStore | None = None, stop: threading.Event | None = None) -> int:
+    lock = acquire_single_instance()
+    if lock is None:
+        return 0  # an icon is already showing for this user
     try:
         import pystray
     except ImportError:

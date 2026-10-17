@@ -34,6 +34,12 @@ Source: "run-connector.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "register-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "unregister-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
+[Registry]
+; The "Pair this computer" link in Ovigyan (ovigyan-connector://pair?...) opens the dashboard with the code filled in.
+Root: HKCR; Subkey: "ovigyan-connector"; ValueType: string; ValueName: ""; ValueData: "URL:Ovigyan Connector"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "ovigyan-connector"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCR; Subkey: "ovigyan-connector\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#Exe}"" ""%1"""
+
 [Dirs]
 Name: "{commonappdata}\Ovigyan Connector"
 

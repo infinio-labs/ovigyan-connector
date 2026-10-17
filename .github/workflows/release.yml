@@ -180,7 +180,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
+          HAS_SIGNING_CERT: ${{ secrets.WINDOWS_SIGN_CERT_BASE64 != '' }}
         run: |
+          # Without a code-signing certificate Windows warns "unknown publisher": say what to do right on the release page.
+          UNSIGNED=""
+          if [ "$HAS_SIGNING_CERT" != "true" ]; then
+            UNSIGNED=" **This build is not code-signed**, so Windows may say it protected the PC: choose **More info**, then **Run anyway**."
+          fi
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft >/dev/null 2>&1; then
             is_draft="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
             if [ "$is_draft" != true ]; then
@@ -189,7 +195,7 @@ jobs:
             fi
           else
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --draft --prerelease \
-              --notes "**Installing on Windows:** download **ovigyan-connector-setup-${RELEASE_TAG#v}.exe** and run it. The other \`ovigyan-connector.exe\` is the bare program the installer and the updater use; it is not an installer. On Linux use \`ovigyan-connector-install.sh\`."
+              --notes "**Installing on Windows:** download **ovigyan-connector-setup-${RELEASE_TAG#v}.exe** and run it. The other \`ovigyan-connector.exe\` is the bare program the installer and the updater use; it is not an installer.${UNSIGNED} On Linux use \`ovigyan-connector-install.sh\`."
           fi
           mapfile -d '' files < <(find artifacts -type f -print0)
           test "${#files[@]}" -gt 0

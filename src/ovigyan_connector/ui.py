@@ -11,6 +11,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import re
 import secrets
 import sys
 import threading
@@ -170,11 +171,16 @@ class _Handler(BaseHTTPRequestHandler):
             if self._guard(False):
                 self._run(self.server.service.status)
             return
+        if url.path == "/api/support":
+            if self._guard(False):
+                self._run(lambda: {"text": self.server.service.support_info()})
+            return
         self._json(404, {"error": "Not found."})
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
-        if path not in {"/api/pair", "/api/devices", "/api/unpair", "/api/refresh"}:
+        clock = re.fullmatch(r"/api/devices/([^/]+)/time", path)
+        if path not in {"/api/pair", "/api/devices", "/api/unpair", "/api/refresh", "/api/discover"} and not clock:
             return self._json(404, {"error": "Not found."})
         if not self._guard(True):
             return
@@ -191,6 +197,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._run(lambda: after(self._pair(service, body)))
         elif path == "/api/devices":
             self._run(lambda: after(self._add_device(service, body)))
+        elif path == "/api/discover":
+            self._run(lambda: {"ok": True, "terminals": service.discover()})
+        elif clock:
+            self._run(lambda: {"ok": True, "offsetSeconds": service.set_device_clock(clock.group(1))})
         elif path == "/api/unpair":
             self._run(lambda: after(self._unpair(service)))
         else:

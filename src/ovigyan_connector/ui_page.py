@@ -74,6 +74,8 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin
   </section>
   <section id="devicesCard" class="card" hidden>
     <div class="head"><div><h2>Attendance terminals</h2><p class="muted tight">Add each terminal on this network. An administrator approves it in <span class="prod">Ovigyan</span>.</p></div><button class="primary" id="addToggle" type="button">Add a terminal</button></div>
+    <div class="row tight"><button id="findBtn" type="button">Find terminals on this network</button><span id="findMsg" class="muted" role="status"></span></div>
+    <div id="found"></div>
     <form id="addForm" hidden autocomplete="off">
       <label for="host">Terminal IP address</label>
       <input id="host" name="host" placeholder="192.168.1.50" required>
@@ -88,7 +90,7 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin
     <p id="empty" class="muted" hidden>No terminals yet. Press “Add a terminal” to start.</p>
   </section>
   <section id="connCard" class="card" hidden>
-    <div class="head"><div><h2>Connection</h2><p class="muted tight">How this PC is connected to <span class="prod">Ovigyan</span>.</p></div><button class="link" id="unpair" type="button">Disconnect</button></div>
+    <div class="head"><div><h2>Connection</h2><p class="muted tight">How this PC is connected to <span class="prod">Ovigyan</span>.</p></div><span class="row tight"><button class="link" id="support" type="button">Copy support info</button><button class="link" id="unpair" type="button">Disconnect</button></span></div>
     <dl class="facts">
       <dt>Site</dt><dd id="cSite"></dd>
       <dt>This connector</dt><dd id="cName"></dd>
@@ -107,6 +109,14 @@ async function api(path, method = "GET", body) {
   let data = {}; try { data = await res.json(); } catch (e) {}
   if (!res.ok) { const err = new Error(data.error || "Something went wrong."); err.status = res.status; throw err; }
   return data;
+}
+function span(seconds) {
+  const m = Math.round(seconds / 60);
+  if (m < 60) return m + " min";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + " h" + (m % 60 ? " " + (m % 60) + " min" : "");
+  const days = Math.floor(h / 24);
+  return days + " d" + (h % 24 ? " " + (h % 24) + " h" : "");
 }
 function msg(el, text, kind) { el.replaceChildren(); if (!text) return; const d = document.createElement("div"); d.className = "msg " + kind; d.textContent = text; el.append(d); }
 function show(el, on) { el.hidden = !on; }
@@ -156,6 +166,13 @@ function render(s) {
     const chip = document.createElement("span"); chip.className = "chip " + kind; chip.textContent = word;
     const note = document.createElement("div"); note.className = "muted"; note.textContent = info.message + (info.queued ? " (" + info.queued + " waiting to send)" : "");
     left.append(name, where, document.createElement("br"), chip, note);
+    if (d.clockOffsetSeconds != null && Math.abs(d.clockOffsetSeconds) > 300) {
+      const off = document.createElement("div"); off.className = "muted";
+      off.textContent = "Its clock is " + span(Math.abs(d.clockOffsetSeconds)) + (d.clockOffsetSeconds > 0 ? " ahead of" : " behind") + " this PC, so punches get the wrong time. ";
+      const fix = document.createElement("button"); fix.className = "link"; fix.type = "button"; fix.textContent = "Set to PC time";
+      fix.addEventListener("click", async () => { fix.disabled = true; try { await api("/api/devices/" + encodeURIComponent(d.id) + "/time", "POST", {}); refresh(); } catch (e) { fix.disabled = false; alert(e.message); } });
+      off.append(fix); left.append(off);
+    }
     const rm = document.createElement("button"); rm.className = "link"; rm.type = "button"; rm.textContent = "Remove";
     rm.addEventListener("click", async () => { if (!confirm("Remove this terminal from this PC?")) return; try { await api("/api/devices/" + encodeURIComponent(d.id), "DELETE"); refresh(); } catch (e) { alert(e.message); } });
     row.append(left, rm); list.append(row);
@@ -179,8 +196,57 @@ $("addForm").addEventListener("submit", async (ev) => {
     await refresh();
   } catch (e) { msg($("addMsg"), e.message, "error"); } finally { $("addBtn").disabled = false; }
 });
+function foundRow(t) {
+  const row = document.createElement("div"); row.className = "device";
+  const left = document.createElement("div");
+  const name = document.createElement("strong"); name.textContent = t.needsPassword ? "A terminal that needs its password" : (t.model || "Terminal") + " · " + (t.serial || "unidentified");
+  const where = document.createElement("span"); where.className = "muted"; where.textContent = t.host + ":" + t.port;
+  left.append(name, document.createElement("br"), where);
+  const action = document.createElement("div");
+  if (t.known) { const done = document.createElement("span"); done.className = "muted"; done.textContent = "Already added"; action.append(done); }
+  else {
+    const add = document.createElement("button"); add.type = "button"; add.className = "primary";
+    add.textContent = t.needsPassword ? "Enter its password" : "Add";
+    add.addEventListener("click", async () => {
+      if (t.needsPassword) { toggleAdd(true); $("host").value = t.host; $("port").value = String(t.port); $("password").focus(); return; }
+      add.disabled = true;
+      try {
+        const r = await api("/api/devices", "POST", {host: t.host, port: t.port});
+        action.replaceChildren(Object.assign(document.createElement("span"), {className: "muted", textContent: "Added"}));
+        msg($("notice"), "Added " + (r.device.model || "terminal") + " " + r.device.serial + ". An administrator now approves it in " + product + " under Settings → Connectors.", "good");
+        await refresh();
+      } catch (e) { add.disabled = false; msg($("findMsg"), e.message, "error"); }
+    });
+    action.append(add);
+  }
+  row.append(left, action); return row;
+}
+$("findBtn").addEventListener("click", async () => {
+  $("findBtn").disabled = true; $("found").replaceChildren(); $("findMsg").textContent = "Looking on this network…";
+  try {
+    const r = await api("/api/discover", "POST", {});
+    $("findMsg").textContent = r.terminals.length ? "" : "No terminals found. Check that they are switched on and on this PC's network, or add one by its IP address.";
+    for (const t of r.terminals) $("found").append(foundRow(t));
+  } catch (e) { $("findMsg").textContent = e.message; } finally { $("findBtn").disabled = false; }
+});
+$("support").addEventListener("click", async () => {
+  try { const r = await api("/api/support"); await navigator.clipboard.writeText(r.text); msg($("notice"), "Copied. Paste it into your message to whoever is helping. It holds no passwords or keys.", "good"); }
+  catch (e) { msg($("notice"), "Could not copy: " + e.message, "error"); }
+});
 $("unpair").addEventListener("click", async () => { if (!confirm("Disconnect this PC from Ovigyan? Terminals stay in the list.")) return; try { await api("/api/unpair", "POST", {}); refresh(); } catch (e) { alert(e.message); } });
-refresh(); setInterval(refresh, 3000);
+// A link from Ovigyan opens this page with the site and code in the address after #; fill them in and clear the address.
+const linked = new URLSearchParams(location.hash.slice(1));
+if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+async function applyLink() {
+  const server = linked.get("server"), key = linked.get("key");
+  if (!server || !key) return;
+  let s; try { s = await api("/api/status"); } catch (e) { return; }
+  if (s.paired) { msg($("notice"), "A link from Ovigyan offered a new connection code, but this PC is already connected to " + s.server + ". Press Disconnect first if you want to connect it to " + server + " instead.", "warn"); return; }
+  $("server").value = server; $("key").value = key;
+  msg($("pairMsg"), "Check the address above is your Ovigyan site, then press Connect.", "good");
+  $("pairBtn").focus();
+}
+refresh().then(applyLink); setInterval(refresh, 3000);
 // While a terminal is waiting for approval (or not checked yet), nudge the connector so approval shows within seconds.
 setInterval(async () => { if (document.hidden) return; try { const s = await api("/api/status"); const last = (s.lastCycle || {}).devices || []; if (s.paired && last.some((d) => d.state === "pending" || d.state === "unknown")) await api("/api/refresh", "POST", {}); } catch (e) {} }, 15000);
 </script>

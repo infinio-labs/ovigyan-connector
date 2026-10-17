@@ -8,6 +8,10 @@ every file against the manifest, runs the new build's self-test, and only then i
   * Linux: the verified build is staged and the service restarts; systemd's root-only ExecStartPre
     (`ovigyan-connector apply-update`) verifies it again and swaps the executable.
 It never installs a version other than the one the site asked for, never an older one, and tries at most once an hour.
+
+A new version then spends 15 minutes on probation. The first time it completes a check-in with the site it is confirmed.
+If instead it keeps failing with errors of its own (not just a lost connection), it puts the version it came from back,
+through the same signed and checksummed path, and does not try the failed version again until the site names another.
 """
 from __future__ import annotations
 
@@ -31,8 +35,11 @@ RELEASES = "https://github.com/infinio-labs/ovigyan-connector/releases/download"
 MAX_MANIFEST = 256 * 1024
 MAX_DOWNLOAD = 250 * 1024 * 1024
 RETRY_AFTER_SECONDS = 3600
+PROBATION_SECONDS = 15 * 60  # a freshly updated connector has this long to prove itself
+PROBATION_FAULTS = 3  # cycles that raised an error (a bug), not merely "no internet", before it is rolled back
 UPDATE_TASK = "Ovigyan Connector Update"
 LINUX_BINARY = "ovigyan-connector"
+ROLLBACK_MARKER = "rollback-from"
 _VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 
 
@@ -140,6 +147,8 @@ class Updater:
         if not idle and not urgent and not force:
             return Outcome("waiting", "Waiting for the queue to empty before updating.")
         state = self.state()
+        if state.get("rolled_back_from") == policy.target and not force:
+            return Outcome("held", f"Version {policy.target} did not work on this computer and was rolled back; waiting for a newer version.")
         if not force and state.get("target") == policy.target and now - float(state.get("attempted_at", 0)) < RETRY_AFTER_SECONDS:
             return Outcome("waiting", "An update was tried recently; trying again later.")
         self._save(target=policy.target, attempted_at=now)
@@ -149,6 +158,42 @@ class Updater:
             self.cleanup()
             outcome = Outcome("failed", f"Could not update to {policy.target}: {error}")
         self._save(status=outcome.status, message=outcome.message)
+        if outcome.status in {"applying", "restart"}:
+            # The new version is about to run: remember what to go back to if it turns out not to work.
+            self._save(from_version=__version__, to_version=policy.target, applied_at=now, probation=True, rolled_back_from=None)
+        return outcome
+
+    # ── probation and rollback ─────────────────────────────────────────────────────────────────────
+    def on_probation(self) -> dict | None:
+        """The update record while this version is the one just installed and not yet confirmed; otherwise None."""
+        state = self.state()
+        if state.get("probation") and state.get("to_version") == __version__ and parse_version(state.get("from_version")):
+            return state
+        return None
+
+    def confirm(self, now: float | None = None) -> None:
+        """This version completed a check-in with the site: the update worked."""
+        if self.on_probation():
+            self._save(probation=False, confirmed_at=time.time() if now is None else now, status="confirmed",
+                       message=f"Version {__version__} is working.")
+
+    def probation_over(self, now: float | None = None) -> bool:
+        state = self.on_probation()
+        return bool(state) and (time.time() if now is None else now) - float(state.get("applied_at", 0)) > PROBATION_SECONDS
+
+    def roll_back(self) -> Outcome:
+        """Put the version this one replaced back. Signed and checked exactly like an update; never raises."""
+        state = self.on_probation()
+        if not state:
+            return Outcome("up_to_date", "Nothing to roll back.")
+        previous = str(state["from_version"])
+        self._save(probation=False, rolled_back_from=__version__)
+        try:
+            outcome = self._update(previous, rollback=True)
+        except Exception as error:  # noqa: BLE001 - a failed rollback leaves the running version alone
+            self.cleanup()
+            outcome = Outcome("failed", f"Could not go back to {previous}: {error}")
+        self._save(status="rolled_back" if outcome.status != "failed" else "failed", message=outcome.message)
         return outcome
 
     # ── fetching and checking ───────────────────────────────────────────────────────────────────────
@@ -176,7 +221,7 @@ class Updater:
         if done.returncode != 0 or f"ovigyan-connector {version} ok" not in done.stdout:
             raise ValueError("the new build did not start on this computer")
 
-    def _update(self, version: str) -> Outcome:
+    def _update(self, version: str, rollback: bool = False) -> Outcome:
         manifest = self.manifest(version)
         self.cleanup()
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -194,6 +239,8 @@ class Updater:
             binary.write_bytes(self._asset(version, manifest, LINUX_BINARY))
             binary.chmod(0o755)
             self._self_test(binary, version)
+            if rollback:  # the root-only step may install an older build only when it is told which version it replaces
+                (self.dir / ROLLBACK_MARKER).write_text(__version__, encoding="ascii")
             (self.dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             (self.dir / "manifest.json.sig").write_bytes(self.fetch(f"{self.base_url}/v{version}/manifest.json.sig", 4096))
             return Outcome("restart", f"Version {version} is ready; restarting to switch to it.")
@@ -233,8 +280,10 @@ def apply_staged(home: Path, install_path: Path, public_key: str = PUBLIC_KEY) -
         manifest = json.loads(manifest_bytes)
         data = binary.read_bytes()
         new, current = parse_version(manifest.get("version")), parse_version(__version__)
-        if not new or not current or new <= current:
-            raise ValueError("staged build is not newer than this one")
+        marker = staged / ROLLBACK_MARKER
+        going_back = marker.is_file() and not marker.is_symlink() and marker.read_text(encoding="ascii").strip() == __version__
+        if not new or not current or (new >= current if going_back else new <= current):
+            raise ValueError("staged build is not older than this one" if going_back else "staged build is not newer than this one")
         if manifest["files"].get(LINUX_BINARY) != _sha256(data):
             raise ValueError("staged build does not match the signed checksum")
         temp = install_path.with_name(install_path.name + ".new")
@@ -247,5 +296,5 @@ def apply_staged(home: Path, install_path: Path, public_key: str = PUBLIC_KEY) -
     except Exception as error:  # noqa: BLE001 - leave the working executable alone
         return f"refused staged update: {error}"
     finally:
-        for path in (binary, manifest_path, sig_path):
+        for path in (binary, manifest_path, sig_path, staged / ROLLBACK_MARKER):
             path.unlink(missing_ok=True)

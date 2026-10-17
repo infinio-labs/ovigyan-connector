@@ -50,6 +50,27 @@ If the school revokes the connector in Ovigyan, the next check shows "revoked": 
 Terminals the connector cannot reach are reported without stopping the others, and punches that could not be
 delivered stay queued (one queue per terminal) and go out when the connection returns.
 
+## What the dashboard does
+
+- **Connection:** the site, this connector's name, status, last check, terminals and version, with **Copy support info**
+  (a plain summary for whoever is helping; credentials, keys and the page's secret link are removed).
+- **Find terminals on this network:** looks at the private network(s) this PC is on for terminals on port 4370 and lists
+  them with an Add button. A terminal that wants its communication password is listed too; add it with the password.
+- **Clock check:** each terminal's clock is read every ten minutes and reported to Ovigyan. A terminal more than five
+  minutes off shows a warning with **Set to PC time**.
+- **People on the terminal:** the connector reads who is stored on each approved terminal and sends the list to Ovigyan
+  (once, and again only when it changes), so staff can link them from names. Neither this nor the clock check can ever
+  stop punches being delivered.
+- **Pairing link:** the "Open the connector with this code filled in" link in Ovigyan (`ovigyan-connector://pair?...`) opens
+  the dashboard with the site and code filled in. You still press Connect.
+
+## Updates and rollback
+
+The connector updates itself to the version its Ovigyan site names (signed and checksummed). A new version then spends
+15 minutes on probation: reaching the site once confirms it. If it keeps failing with errors of its own for the whole
+probation (not just a lost connection), it puts the version it replaced back, the same signed way, and does not try the
+failed version again until the site names another. A crash loop before the connector can run is not covered.
+
 ## X2008 quick start (environment variables)
 
 The first adapter targets the supplied eSSL X2008 (`NFZ824090078`) through the

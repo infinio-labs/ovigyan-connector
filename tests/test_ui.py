@@ -257,3 +257,66 @@ def test_the_page_shows_the_connection_details():
     for fact in ("cSite", "cName", "cStatus", "cLast", "cDevices", "cVersion"):
         assert f'id="{fact}"' in PAGE
     assert 'id="connCard"' in PAGE and 'id="unpair"' in PAGE
+
+
+class TestTerminalClock:
+    def test_the_page_offers_to_set_a_wrong_clock_and_the_route_does_it(self, ui, cloud):
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        behind = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None, microsecond=0) - timedelta(hours=2)
+        with FakeZkDevice([], serial="SN9", clock=behind) as zk:
+            assert jcall(ui, "POST", "/api/pair", {"server": cloud.url, "key": PAIR_KEY})[0] == 200
+            status, added = jcall(ui, "POST", "/api/devices", {"host": "127.0.0.1", "port": zk.port})
+            assert status == 200
+            cloud.approve("SN9")
+            ui.service.run_cycle()
+
+            status, shown = jcall(ui, "GET", "/api/status")
+            assert shown["devices"][0]["clockOffsetSeconds"] < -7000
+
+            status, result = jcall(ui, "POST", f"/api/devices/{added['device']['id']}/time", {})
+            assert status == 200 and abs(result["offsetSeconds"]) <= 5
+            assert abs((zk.clock - datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)).total_seconds()) <= 5
+
+    def test_an_unknown_terminal_is_a_plain_error_and_a_page_without_the_secret_cannot_do_it(self, ui):
+        status, body = jcall(ui, "POST", "/api/devices/nope/time", {})
+        assert status == 400 and "No terminal" in body["error"]
+        assert call(ui, "POST", "/api/devices/nope/time", {}, cookie=False)[0].status in {401, 403}
+
+    def test_the_page_carries_the_clock_warning_and_its_button(self):
+        from ovigyan_connector.ui_page import PAGE
+
+        assert "Set to PC time" in PAGE and "clockOffsetSeconds" in PAGE
+
+
+class TestDiscoveryRoute:
+    def test_finding_terminals_lists_them_and_the_page_can_add_one(self, ui, cloud, monkeypatch):
+        import ipaddress
+
+        from ovigyan_connector import service as service_module
+
+        with FakeZkDevice([], serial="SN5", model="X2008") as zk:
+            monkeypatch.setattr(service_module, "local_networks", lambda: [ipaddress.ip_network("127.0.0.0/29")])
+            monkeypatch.setattr(service_module, "DEFAULT_PORT", zk.port)
+            status, body = jcall(ui, "POST", "/api/discover", {})
+            assert status == 200 and [t["serial"] for t in body["terminals"]] == ["SN5"]
+            assert call(ui, "POST", "/api/discover", {}, cookie=False)[0].status in {401, 403}
+
+    def test_the_page_has_the_search_button_and_the_password_path(self):
+        from ovigyan_connector.ui_page import PAGE
+
+        for needle in ('id="findBtn"', "/api/discover", "Enter its password", "Already added"):
+            assert needle in PAGE
+
+
+class TestSupportInfo:
+    def test_the_page_asks_for_it_and_the_route_needs_the_secret(self, ui):
+        status, body = jcall(ui, "GET", "/api/support")
+        assert status == 200 and "Ovigyan Connector support information" in body["text"]
+        assert call(ui, "GET", "/api/support", cookie=False)[0].status in {401, 403}
+
+    def test_the_page_has_the_button_that_copies_it(self):
+        from ovigyan_connector.ui_page import PAGE
+
+        assert "Copy support info" in PAGE and "/api/support" in PAGE and "clipboard.writeText" in PAGE
