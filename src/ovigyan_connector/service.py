@@ -16,12 +16,14 @@ import threading
 import time
 import urllib.error
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Callable
 
 from . import __version__
 from .adapters import EsslX2008Adapter
 from .delivery import deliver
+from .backup import BackupError, check_folder, run_backup
 from .branding import contrast_text, fetch_logo
 from .cloud import CloudClient, CloudConfig, CloudError, normalize_server_url
 from .discovery import DEFAULT_PORT, local_networks, open_hosts
@@ -97,6 +99,8 @@ class ConnectorService:
         user_reader: Callable[..., list[dict]] = read_users,
         clock_check_seconds: float = 600,
         users_check_seconds: float = 6 * 3600,
+        backup_runner: Callable[..., object] = run_backup,
+        backup_clock: Callable[[], datetime] = datetime.now,
     ):
         self.store = store or StateStore()
         self.client_factory = client_factory
@@ -116,6 +120,10 @@ class ConnectorService:
         self._users_sent: dict[str, tuple[str, float]] = {}  # serial -> (fingerprint of the list, when it was sent)
         self._timezones: dict[str, str] = {}
         self._probation_faults = 0  # cycles that raised an error since the last update (see check_probation)
+        # The school's nightly copy of its data: when it is due, and the thread that takes it (it can take minutes).
+        self.backup_runner, self.backup_clock = backup_runner, backup_clock
+        self._backup_enabled: bool | None = None  # None until the site has said
+        self._backup_thread: threading.Thread | None = None
         self.http_retries = http_retries
         self.retry_backoff_seconds = retry_backoff_seconds
         # How long to wait for a terminal when adding it. Windows takes a few seconds to give up on a closed port.
@@ -312,6 +320,8 @@ class ConnectorService:
             )
         self._adopt_branding(config.branding)
         self.policy = config.update
+        self._backup_enabled = config.backup_enabled
+        self._maybe_backup(client)
         devices = [self._poll(state, client, device, config) for device in state.devices]
         return self._finish(CycleReport(_utc_now(), "ok", "Connected.", config.poll_seconds, devices))
 
@@ -459,6 +469,106 @@ class ConnectorService:
         except (ProbeError, CloudError, OSError) as error:
             print(f"ovigyan-connector: {device.host}: {error}", file=sys.stderr)
 
+    # ── the school's nightly copy of its data ──────────────────────────────────────────────────────
+
+    @property
+    def _backup_note_path(self) -> Path:
+        return self.store.home / "backup.json"
+
+    def _backup_note(self) -> dict:
+        try:
+            note = json.loads(self._backup_note_path.read_text(encoding="utf-8"))
+            return note if isinstance(note, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _save_backup_note(self, **changes: object) -> None:
+        try:
+            self.store.home.mkdir(parents=True, exist_ok=True)
+            self._backup_note_path.write_text(json.dumps({**self._backup_note(), **changes}, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    def backup_folder(self) -> Path:
+        return Path(self.store.load().backup_dir or self.store.home / "backups")
+
+    @staticmethod
+    def _instant(value: object) -> datetime | None:
+        try:
+            return datetime.fromisoformat(str(value)) if value else None
+        except ValueError:
+            return None
+
+    def backup_due(self, now: datetime | None = None) -> bool:
+        """The first copy straight after it is switched on, then one a night (01:00 to 05:00), and a catch-up whenever
+        two days have passed without one. After a failure, an hour's rest before trying again."""
+        now = now or self.backup_clock()
+        note = self._backup_note()
+        last, attempt = self._instant(note.get("lastSuccessAt")), self._instant(note.get("lastAttemptAt"))
+        if note.get("lastError") and attempt and now - attempt < timedelta(hours=1):
+            return False
+        if last is None:
+            return True
+        age = now - last
+        return age >= timedelta(hours=48) or (age >= timedelta(hours=22) and 1 <= now.hour < 5)
+
+    def _maybe_backup(self, client: CloudClient) -> None:
+        if not self._backup_enabled or (self._backup_thread and self._backup_thread.is_alive()) or not self.backup_due():
+            return
+        self._start_backup(client)
+
+    def _start_backup(self, client: CloudClient) -> None:
+        self._save_backup_note(lastAttemptAt=self.backup_clock().isoformat(timespec="seconds"), lastError=None)
+        self._backup_thread = threading.Thread(target=self._take_backup, args=(client,), name="ovigyan-backup", daemon=True)
+        self._backup_thread.start()
+
+    def _take_backup(self, client: CloudClient) -> None:
+        note = self._backup_note()
+        try:
+            result = self.backup_runner(client, self.backup_folder(), now=self.backup_clock(), last_bytes=int(note.get("lastBytes") or 0))
+            self._save_backup_note(
+                lastSuccessAt=self.backup_clock().isoformat(timespec="seconds"), lastBytes=result.bytes, lastFile=result.path.name, lastError=None
+            )
+        except CloudError as error:
+            self._save_backup_note(lastError=error.message)
+        except (BackupError, OSError) as error:
+            self._save_backup_note(lastError=str(error))
+        except Exception as error:  # noqa: BLE001 - a copy that fails must never take the connector down
+            print(f"ovigyan-connector: backup: {error}", file=sys.stderr)
+            telemetry.capture(error)
+            self._save_backup_note(lastError="The copy could not be taken. See the connector's log.")
+
+    def backup_now(self) -> None:
+        """Take a copy now (the dashboard's button). Raises BackupError when it cannot be started."""
+        if not self._backup_enabled:
+            raise BackupError("A nightly copy to this PC is not switched on in Ovigyan. Turn it on in Settings → Data backup.")
+        if self._backup_thread and self._backup_thread.is_alive():
+            raise BackupError("A copy is already being taken.")
+        state = self.store.load()
+        if not state.paired:
+            raise BackupError("This PC is not connected to Ovigyan.")
+        self._start_backup(self._client(state))
+
+    def set_backup_folder(self, folder: str) -> str:
+        """Choose where copies are kept (made if missing, and written to as a test). Raises BackupError."""
+        path = check_folder(Path((folder or "").strip()))
+        with self._lock:
+            state = self.store.load()
+            state.backup_dir = str(path)
+            self.store.save(state)
+        return str(path)
+
+    def backup_status(self) -> dict:
+        note = self._backup_note()
+        last = note.get("lastSuccessAt")
+        return {
+            "enabled": self._backup_enabled,
+            "folder": str(self.backup_folder()),
+            "running": bool(self._backup_thread and self._backup_thread.is_alive()),
+            "last": {"at": last, "bytes": note.get("lastBytes"), "file": note.get("lastFile")} if last else None,
+            "error": note.get("lastError"),
+        }
+
     def set_device_clock(self, device_id: str) -> int:
         """Set a terminal's clock to this PC's time and return how far off it is afterwards (about zero)."""
         with self._lock:
@@ -506,6 +616,7 @@ class ConnectorService:
             "connectorName": state.connector_name,
             "brand": self._brand_summary(state.branding),
             "update": self.updater.state(),
+            "backup": self.backup_status(),
             "devices": [
                 {
                     "id": d.id, "host": d.host, "port": d.port, "serial": d.serial, "model": d.model, "firmware": d.firmware,

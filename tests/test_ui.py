@@ -320,3 +320,34 @@ class TestSupportInfo:
         from ovigyan_connector.ui_page import PAGE
 
         assert "Copy support info" in PAGE and "/api/support" in PAGE and "clipboard.writeText" in PAGE
+
+
+class TestBackupCard:
+    def test_the_folder_can_be_chosen_from_the_page_and_a_bad_one_is_explained(self, ui, tmp_path):
+        folder = tmp_path / "my copies"
+        status, body = jcall(ui, "POST", "/api/backup/folder", {"folder": str(folder)})
+        assert status == 200 and body["folder"] == str(folder) and folder.is_dir()
+        assert jcall(ui, "GET", "/api/status")[1]["backup"]["folder"] == str(folder)
+        status, body = jcall(ui, "POST", "/api/backup/folder", {"folder": "relative"})
+        assert status == 400 and "full path" in body["error"]
+        assert call(ui, "POST", "/api/backup/folder", {"folder": str(folder)}, cookie=False)[0].status in {401, 403}
+
+    def test_backing_up_now_says_why_when_the_school_has_not_switched_it_on(self, ui):
+        status, body = jcall(ui, "POST", "/api/backup", {})
+        assert status == 400 and "not switched on" in body["error"]
+
+    def test_a_copy_can_be_started_from_the_page_once_it_is_switched_on(self, ui, cloud, tmp_path):
+        cloud.backup = True
+        assert jcall(ui, "POST", "/api/pair", {"server": cloud.url, "key": PAIR_KEY})[0] == 200
+        jcall(ui, "POST", "/api/backup/folder", {"folder": str(tmp_path / "copies")})
+        ui.service.run_cycle()  # learns the setting; the first copy is due at once
+        if ui.service._backup_thread:
+            ui.service._backup_thread.join(10)
+        status, shown = jcall(ui, "GET", "/api/status")
+        assert shown["backup"]["enabled"] is True and shown["backup"]["last"]["file"].endswith(".zip")
+
+    def test_the_page_has_the_card_and_its_controls(self):
+        from ovigyan_connector.ui_page import PAGE
+
+        for needle in ('id="backupCard"', 'id="backupNow"', "/api/backup/folder", "Folder on this PC", "Settings → Data backup"):
+            assert needle in PAGE
