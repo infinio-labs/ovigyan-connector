@@ -105,7 +105,7 @@ def run_tray(store: StateStore | None = None, stop: threading.Event | None = Non
         return 1
     store = store or StateStore()
     stop = stop or threading.Event()
-    state = {"level": "unknown", "text": DEFAULT_NAME, "logo": None, "name": DEFAULT_NAME}
+    state = {"level": "unknown", "text": DEFAULT_NAME, "logo": None}
 
     def refresh(icon) -> None:
         note = read_note(store)
@@ -113,14 +113,16 @@ def run_tray(store: StateStore | None = None, stop: threading.Event | None = Non
         brand = (note or {}).get("brand") or {}
         logo = brand.get("logo_png")
         if (level, text, logo) != (state["level"], state["text"], state["logo"]):
-            state.update(level=level, text=text, logo=logo, name=brand.get("name") or DEFAULT_NAME)
+            state.update(level=level, text=text, logo=logo)
             icon.icon, icon.title = make_icon(level, logo_png=logo), text
             icon.update_menu()
 
     menu = pystray.Menu(
-        pystray.MenuItem(lambda _item: "Open " + state["name"], lambda *_: open_page(), default=True),
+        pystray.MenuItem("Dashboard", lambda *_: open_page(), default=True),
         pystray.MenuItem(lambda _item: state["text"], None, enabled=False),
-        pystray.MenuItem("Hide this icon", lambda icon, *_: icon.stop()),
+        pystray.Menu.SEPARATOR,
+        # Closes this icon only; the connector keeps running in the background.
+        pystray.MenuItem("Exit", lambda icon, *_: icon.stop()),
     )
     icon = pystray.Icon("ovigyan-connector", make_icon("unknown"), "Ovigyan Connector", menu)
 

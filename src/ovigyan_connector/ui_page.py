@@ -44,6 +44,7 @@ button:disabled{opacity:.6;cursor:default}
 .msg.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 details{margin-top:12px}summary{cursor:pointer;color:var(--muted)}
 footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:8px}
+.facts{display:grid;grid-template-columns:max-content 1fr;gap:8px 20px;margin:0}.facts dt{color:var(--muted)}.facts dd{margin:0;overflow-wrap:anywhere}
 .head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .tight{margin:0}
 .hint{margin-top:8px}
@@ -86,7 +87,17 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin
     <div id="devices"></div>
     <p id="empty" class="muted" hidden>No terminals yet. Press “Add a terminal” to start.</p>
   </section>
-  <footer id="footer" class="muted" hidden><span id="conn"></span><button class="link" id="unpair" type="button">Disconnect</button></footer>
+  <section id="connCard" class="card" hidden>
+    <div class="head"><div><h2>Connection</h2><p class="muted tight">How this PC is connected to <span class="prod">Ovigyan</span>.</p></div><button class="link" id="unpair" type="button">Disconnect</button></div>
+    <dl class="facts">
+      <dt>Site</dt><dd id="cSite"></dd>
+      <dt>This connector</dt><dd id="cName"></dd>
+      <dt>Status</dt><dd id="cStatus"></dd>
+      <dt>Last check</dt><dd id="cLast"></dd>
+      <dt>Terminals</dt><dd id="cDevices"></dd>
+      <dt>Version</dt><dd id="cVersion"></dd>
+    </dl>
+  </section>
 </main>
 <script nonce="__NONCE__">
 const $ = (id) => document.getElementById(id);
@@ -120,14 +131,19 @@ function render(s) {
   const last = s.lastCycle || {};
   const byId = Object.fromEntries((last.devices || []).map((d) => [d.id, d]));
   const connected = s.paired;
-  show($("setup"), !connected); show($("devicesCard"), connected); show($("footer"), connected);
+  show($("setup"), !connected); show($("connCard"), connected); show($("devicesCard"), connected);
   $("banner").replaceChildren();
   if (s.status === "revoked") msg($("banner"), "Your school’s Ovigyan site no longer accepts this connector. Connect again with a new key.", "warn");
   if (!connected) { pill(s.status === "revoked" ? "Disconnected" : "Not connected", s.status === "revoked" ? "bad" : "warn"); return; }
   if (last.connector === "offline") pill("Offline — will retry", "warn");
   else if (last.connector === "ok") pill("Connected", "ok");
   else pill("Connecting…", "");
-  $("conn").textContent = "Connected to " + s.server + " as “" + s.connectorName + "” · version " + s.version;
+  $("cSite").textContent = s.server;
+  $("cName").textContent = s.connectorName;
+  $("cStatus").textContent = $("pillText").textContent;
+  $("cLast").textContent = last.at ? new Date(last.at).toLocaleString() + (last.message ? " · " + last.message : "") : "Not checked yet";
+  $("cDevices").textContent = s.devices.length === 0 ? "None added yet" : String(s.devices.length);
+  $("cVersion").textContent = s.version;
   const list = $("devices"); list.replaceChildren();
   show($("empty"), s.devices.length === 0 && !adding);
   for (const d of s.devices) {

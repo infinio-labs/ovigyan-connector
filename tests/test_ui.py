@@ -249,3 +249,11 @@ class TestPage:
         from ovigyan_connector.ui_page import PAGE
 
         assert not re.search(r'(src|href)=["\']https?://', PAGE) and "@import" not in PAGE
+
+
+def test_the_page_shows_the_connection_details():
+    from ovigyan_connector.ui_page import PAGE
+
+    for fact in ("cSite", "cName", "cStatus", "cLast", "cDevices", "cVersion"):
+        assert f'id="{fact}"' in PAGE
+    assert 'id="connCard"' in PAGE and 'id="unpair"' in PAGE

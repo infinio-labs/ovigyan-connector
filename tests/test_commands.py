@@ -80,3 +80,39 @@ def test_the_original_environment_variable_mode_still_works(tmp_path, monkeypatc
     monkeypatch.delenv("ATTENDANCE_MACHINE_ID", raising=False)
     assert main(["--once"]) == 1
     assert "ATTENDANCE_MACHINE_ID" in capsys.readouterr().err
+
+
+def test_open_waits_for_the_connector_to_start(tmp_path, capsys):
+    """Right after installing, the background task is still starting: `open --wait` holds on for it."""
+    import socket
+    import threading
+    import time
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    listener = socket.socket()
+    ready = threading.Event()
+
+    def start_late():
+        time.sleep(1.5)
+        listener.bind(("127.0.0.1", port))
+        listener.listen()
+        ready.set()
+
+    threading.Thread(target=start_late, daemon=True).start()
+    try:
+        code, out, _ = run(capsys, tmp_path, "open", "--ui-port", str(port), "--no-browser", "--wait", "10")
+        assert code == 0 and ready.is_set() and f"127.0.0.1:{port}" in out
+    finally:
+        listener.close()
+
+
+def test_open_gives_up_when_the_connector_never_starts(tmp_path, capsys):
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    code, _, err = run(capsys, tmp_path, "open", "--ui-port", str(port), "--no-browser", "--wait", "1")
+    assert code == 1 and "not running" in err

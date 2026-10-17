@@ -128,3 +128,15 @@ def test_the_scheduled_task_never_times_out_and_the_home_folder_is_locked_down()
     assert "S-1-5-32-545" in script  # Users: read the page token and the status note only
     run_script = (PACKAGING / "windows" / "run-connector.ps1").read_text()
     assert "run" in run_script and "ATTENDANCE_" not in run_script
+
+
+def test_the_windows_installer_starts_the_icon_and_opens_the_dashboard_when_setup_ends():
+    """After a normal install the icon is there at once (not at the next sign-in) and the dashboard opens once the
+    background task is up. A silent install (the automatic update, run as SYSTEM with no desktop) starts neither."""
+    iss = (PACKAGING / "windows" / "installer.iss").read_text()
+    run_section = iss[iss.index("[Run]") : iss.index("[UninstallRun]")]
+    entries = [line for line in run_section.splitlines() if line.startswith("Filename:")]
+    tray_entry = next(line for line in entries if "'tray'" in line)
+    assert "runasoriginaluser" in tray_entry and "skipifsilent" in tray_entry and "postinstall" not in tray_entry
+    dashboard = next(line for line in entries if "'open'" in line)
+    assert "'--wait','30'" in dashboard and "postinstall" in dashboard and "skipifsilent" in dashboard
