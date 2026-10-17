@@ -24,12 +24,12 @@ OutputBaseFilename=ovigyan-connector-setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-; The tray may still be running when a silent update replaces this executable.
-CloseApplications=force
+CloseApplications=yes
 SetupLogging=yes
 UninstallDisplayName={#AppName}
 
 [Files]
+Source: "stop-connector.ps1"; Flags: dontcopy
 Source: "..\..\dist\{#Exe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "run-connector.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "register-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -66,9 +66,15 @@ function PrepareToInstall(var NeedsRestart: Boolean): string;
 var
   Code: Integer;
 begin
-  { An upgrade replaces the executable the task is running. }
-  Exec('schtasks.exe', '/End /TN "{#TaskName}"', '', SW_HIDE, ewWaitUntilTerminated, Code);
-  Result := '';
+  { Stop the background task and the signed-in user's tray before replacing their shared executable. }
+  ExtractTemporaryFile('stop-connector.ps1');
+  if not Exec('cmd.exe',
+    '/C set PSModulePath=& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\stop-connector.ps1') + '"' +
+    ' -ExecutablePath "' + ExpandConstant('{app}\{#Exe}') + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+    Result := 'Stopping the installed connector failed (exit code ' + IntToStr(Code) + ').'
+  else
+    Result := '';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

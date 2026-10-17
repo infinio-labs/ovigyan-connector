@@ -164,6 +164,10 @@ def test_the_icon_has_an_on_demand_task_for_users_that_setup_and_updates_start_a
     assert "'Ovigyan Connector Icon'" in unregister and "Unregister-ScheduledTask -TaskName $iconTaskName" in unregister
 
 
-def test_silent_upgrades_can_close_the_tray_that_uses_the_installed_executable():
+def test_silent_upgrades_stop_the_installed_connector_across_windows_sessions():
     iss = (PACKAGING / "windows" / "installer.iss").read_text()
-    assert "CloseApplications=force" in iss
+    stop = (PACKAGING / "windows" / "stop-connector.ps1").read_text()
+    assert "ExtractTemporaryFile('stop-connector.ps1')" in iss
+    assert "{tmp}\\stop-connector.ps1" in iss
+    assert "ExecutablePath -ieq $ExecutablePath" in stop
+    assert "Stop-Process" in stop and "WaitForExit(30000)" in stop
