@@ -29,7 +29,7 @@ SetupLogging=yes
 UninstallDisplayName={#AppName}
 
 [Files]
-Source: "stop-connector.ps1"; Flags: dontcopy
+Source: "stop-connector.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dist\{#Exe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "run-connector.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "register-task.ps1"; DestDir: "{app}"; Flags: ignoreversion

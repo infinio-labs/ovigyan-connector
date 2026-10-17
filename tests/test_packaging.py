@@ -171,3 +171,6 @@ def test_silent_upgrades_stop_the_installed_connector_across_windows_sessions():
     assert "{tmp}\\stop-connector.ps1" in iss
     assert "ExecutablePath -ieq $ExecutablePath" in stop
     assert "Stop-Process" in stop and "WaitForExit(30000)" in stop
+    unregister = (PACKAGING / "windows" / "unregister-task.ps1").read_text()
+    assert "stop-connector.ps1" in unregister  # uninstall has the same cross-session shutdown requirement
+    assert 'Source: "stop-connector.ps1"; DestDir: "{app}"' in iss

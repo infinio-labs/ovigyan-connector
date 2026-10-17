@@ -106,7 +106,10 @@ if ((Get-Content "$home_\update.json" -Raw | ConvertFrom-Json).status -ne 'apply
 # Upgrade-in-place keeps working: run the installer again.
 $again = Run-Exe $setup ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/LOG=upgrade.log') 'reinstall'
 if ($again -ne 0) { Get-Content upgrade.log -Tail 60; throw "reinstall failed: $again" }
+if ((Get-Content "$home_\ui-token" -Raw).Trim() -ne $token) { throw 'the upgrade replaced the saved page token' }
 $unCode = Run-Exe "$env:ProgramFiles\Ovigyan Connector\unins000.exe" ('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'uninstall'
 if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'task not removed on uninstall' }
 if (Get-ScheduledTask -TaskName 'Ovigyan Connector Icon' -ErrorAction SilentlyContinue) { throw 'icon task not removed on uninstall' }
+if (Get-CimInstance Win32_Process -Filter "Name='ovigyan-connector.exe'" | Where-Object { $_.ExecutablePath -ieq $exe }) { throw 'the installed connector or tray is still running after uninstall' }
+if (Test-Path $exe) { throw 'the installed executable was not removed' }
 if (-not (Test-Path "$home_\ui-token")) { throw 'uninstall removed the settings folder (it must keep them)' }
