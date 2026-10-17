@@ -13,12 +13,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Never package a tag that did not pass the same tests and installer smoke test as a pull request.
+  # Unit tests gate packaging; the actual release installer runs the shared smoke test below.
   ci:
     name: Verify tagged commit
     uses: ./.github/workflows/ci.yml
     with:
-      package: 'false' # release packages (and signs) the artifacts itself
+      package: 'false' # release packages, signs and smoke-tests the actual artifacts itself
 
   package:
     name: Package (${{ matrix.artifact }})
@@ -103,9 +103,22 @@ jobs:
         run: |
           Get-ChildItem dist\ovigyan-connector-setup-*.exe | ForEach-Object { ./packaging/windows/sign.ps1 -Path $_.FullName }
 
+      - name: Smoke-test the release installer and automatic update
+        if: matrix.artifact == 'windows'
+        timeout-minutes: 10
+        shell: pwsh
+        run: ./scripts/windows-installer-smoke.ps1 -SetupPath (Get-ChildItem dist\ovigyan-connector-setup-*.exe).FullName
+
+      - name: Installer logs
+        if: failure() && matrix.artifact == 'windows'
+        shell: pwsh
+        run: |
+          Get-Content "$env:ProgramData\Ovigyan Connector\update-installer.txt" -ErrorAction SilentlyContinue
+          Get-Content install.log, upgrade.log -ErrorAction SilentlyContinue | Select-Object -Last 100
+
       - name: Warn when unsigned
         if: matrix.artifact == 'windows' && env.SIGN_CERT == ''
-        run: echo '::warning::WINDOWS_SIGN_CERT_BASE64 is not set; the installer and executable are UNSIGNED and must not be deployed.'
+        run: echo '::warning::WINDOWS_SIGN_CERT_BASE64 is not set; the installer and executable are UNSIGNED; this build is for the explicitly approved supervised pilot only.'
 
       - name: Create integrity manifest
         shell: bash

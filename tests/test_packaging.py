@@ -162,3 +162,15 @@ def test_the_icon_has_an_on_demand_task_for_users_that_setup_and_updates_start_a
     assert "Start-ScheduledTask -TaskName $iconTaskName" in start and "catch" in start
     unregister = (PACKAGING / "windows" / "unregister-task.ps1").read_text()
     assert "'Ovigyan Connector Icon'" in unregister and "Unregister-ScheduledTask -TaskName $iconTaskName" in unregister
+
+
+def test_silent_upgrades_stop_the_installed_connector_across_windows_sessions():
+    iss = (PACKAGING / "windows" / "installer.iss").read_text()
+    stop = (PACKAGING / "windows" / "stop-connector.ps1").read_text()
+    assert "ExtractTemporaryFile('stop-connector.ps1')" in iss
+    assert "{tmp}\\stop-connector.ps1" in iss
+    assert "ExecutablePath -ieq $ExecutablePath" in stop
+    assert "Stop-Process" in stop and "WaitForExit(30000)" in stop
+    unregister = (PACKAGING / "windows" / "unregister-task.ps1").read_text()
+    assert "stop-connector.ps1" in unregister  # uninstall has the same cross-session shutdown requirement
+    assert 'Source: "stop-connector.ps1"; DestDir: "{app}"' in iss

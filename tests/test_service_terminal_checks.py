@@ -42,10 +42,10 @@ def test_the_terminal_clock_is_read_and_reported_to_the_site(tmp_path, cloud):
     with FakeZkDevice([], serial="SN1", clock=kolkata_now() - timedelta(minutes=30)) as zk:
         service = setup(tmp_path, cloud, zk)
         service.run_cycle()  # reads the clock
-        service.run_cycle()  # reports what the last cycle learned
-        offset = cloud.reported["SN1"]["status"]["clockOffsetSeconds"]
+        offset = service.status()["devices"][0]["clockOffsetSeconds"]
         assert -1810 <= offset <= -1790
-        assert service.status()["devices"][0]["clockOffsetSeconds"] == offset
+        service.run_cycle()  # reports the previous sample, then reads a fresh one
+        assert cloud.reported["SN1"]["status"]["clockOffsetSeconds"] == offset
 
 
 def test_the_clock_is_checked_on_its_own_schedule_not_every_cycle(tmp_path, cloud):

@@ -248,7 +248,7 @@ class Updater:
 
     def _run_installer(self, setup: Path) -> None:
         """Run the setup as a one-off SYSTEM task so it survives the installer ending this task's process tree."""
-        command = f'"{setup}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
+        command = f'"{setup}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="{self.home / "update-installer.txt"}"'
         for arguments in (
             ["schtasks.exe", "/Create", "/TN", UPDATE_TASK, "/SC", "ONCE", "/ST", "00:00", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F", "/TR", command],
             ["schtasks.exe", "/Run", "/TN", UPDATE_TASK],
