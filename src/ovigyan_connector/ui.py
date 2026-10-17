@@ -19,7 +19,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .cloud import CloudError
-from .backup import BackupError
 from .devices import ProbeError
 from .service import ConnectorService
 from .ui_page import PAGE
@@ -131,8 +130,6 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(200, action())
         except (CloudError, ProbeError) as error:
             self._json(400, {"error": error.message, "kind": error.kind})
-        except BackupError as error:
-            self._json(400, {"error": str(error), "kind": "backup"})
         except Exception as error:  # noqa: BLE001 - never leak internals to the page
             print(f"ovigyan-connector: ui: {error}", file=sys.stderr)
             self._json(500, {"error": "Something went wrong. Check the connector's log and try again."})
@@ -183,7 +180,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         clock = re.fullmatch(r"/api/devices/([^/]+)/time", path)
-        if path not in {"/api/pair", "/api/devices", "/api/unpair", "/api/refresh", "/api/discover", "/api/backup", "/api/backup/folder"} and not clock:
+        if path not in {"/api/pair", "/api/devices", "/api/unpair", "/api/refresh", "/api/discover"} and not clock:
             return self._json(404, {"error": "Not found."})
         if not self._guard(True):
             return
@@ -200,14 +197,6 @@ class _Handler(BaseHTTPRequestHandler):
             self._run(lambda: after(self._pair(service, body)))
         elif path == "/api/devices":
             self._run(lambda: after(self._add_device(service, body)))
-        elif path == "/api/backup":
-            def start() -> dict:
-                service.backup_now()
-                return {"ok": True}
-
-            self._run(start)
-        elif path == "/api/backup/folder":
-            self._run(lambda: {"ok": True, "folder": service.set_backup_folder(str(body.get("folder", "")))})
         elif path == "/api/discover":
             self._run(lambda: {"ok": True, "terminals": service.discover()})
         elif clock:

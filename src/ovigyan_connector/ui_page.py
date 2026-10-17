@@ -89,15 +89,6 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin
     <div id="devices"></div>
     <p id="empty" class="muted" hidden>No terminals yet. Press “Add a terminal” to start.</p>
   </section>
-  <section id="backupCard" class="card" hidden>
-    <div class="head"><div><h2>Copy of the school&#39;s data</h2><p class="muted tight" id="backupLead"></p></div><button class="primary" id="backupNow" type="button">Back up now</button></div>
-    <div id="backupStatus" class="muted" role="status"></div>
-    <form id="backupForm" autocomplete="off">
-      <label for="backupFolder">Folder on this PC</label>
-      <div class="row tight"><input id="backupFolder" name="folder" placeholder="D:\SchoolBackups" spellcheck="false"><button type="submit" id="backupSave">Save folder</button></div>
-      <div id="backupMsg" role="status"></div>
-    </form>
-  </section>
   <section id="connCard" class="card" hidden>
     <div class="head"><div><h2>Connection</h2><p class="muted tight">How this PC is connected to <span class="prod">Ovigyan</span>.</p></div><span class="row tight"><button class="link" id="support" type="button">Copy support info</button><button class="link" id="unpair" type="button">Disconnect</button></span></div>
     <dl class="facts">
@@ -145,32 +136,18 @@ function brand(b) {
   if (b.logo) { const src = "/logo.png?v=" + b.logo; if (logo.getAttribute("src") !== src) logo.setAttribute("src", src); }
   show(logo, !!b.logo);
 }
-function renderBackup(b) {
-  const on = b.enabled === true;
-  $("backupLead").textContent = on
-    ? "Ovigyan sends a copy each night. The newest 14 are kept in this folder."
-    : b.enabled === false ? "Not switched on. In " + product + " open Settings → Data backup and turn it on for this PC." : "Checking with " + product + "…";
-  $("backupNow").disabled = !on || b.running === true;
-  const status = $("backupStatus"); status.replaceChildren();
-  if (b.running) status.textContent = "Taking a copy…";
-  else if (b.error) msg(status, "The last copy did not work: " + b.error, "error");
-  else if (b.last) status.textContent = "Last copy: " + new Date(b.last.at).toLocaleString() + " · " + (b.last.bytes == null ? "" : (b.last.bytes < 1048576 ? Math.max(1, Math.round(b.last.bytes / 1024)) + " KB" : (b.last.bytes / 1048576).toFixed(1) + " MB") + " · ") + b.last.file;
-  else if (on) status.textContent = "No copy yet. The first one is taken shortly.";
-  if (document.activeElement !== $("backupFolder")) $("backupFolder").value = b.folder || "";
-}
 function render(s) {
   brand(s.brand);
   const last = s.lastCycle || {};
   const byId = Object.fromEntries((last.devices || []).map((d) => [d.id, d]));
   const connected = s.paired;
-  show($("setup"), !connected); show($("connCard"), connected); show($("devicesCard"), connected); show($("backupCard"), connected);
+  show($("setup"), !connected); show($("connCard"), connected); show($("devicesCard"), connected);
   $("banner").replaceChildren();
   if (s.status === "revoked") msg($("banner"), "Your school’s Ovigyan site no longer accepts this connector. Connect again with a new key.", "warn");
   if (!connected) { pill(s.status === "revoked" ? "Disconnected" : "Not connected", s.status === "revoked" ? "bad" : "warn"); return; }
   if (last.connector === "offline") pill("Offline — will retry", "warn");
   else if (last.connector === "ok") pill("Connected", "ok");
   else pill("Connecting…", "");
-  renderBackup(s.backup || {});
   $("cSite").textContent = s.server;
   $("cName").textContent = s.connectorName;
   $("cStatus").textContent = $("pillText").textContent;
@@ -251,16 +228,6 @@ $("findBtn").addEventListener("click", async () => {
     $("findMsg").textContent = r.terminals.length ? "" : "No terminals found. Check that they are switched on and on this PC's network, or add one by its IP address.";
     for (const t of r.terminals) $("found").append(foundRow(t));
   } catch (e) { $("findMsg").textContent = e.message; } finally { $("findBtn").disabled = false; }
-});
-$("backupNow").addEventListener("click", async () => {
-  $("backupNow").disabled = true;
-  try { await api("/api/backup", "POST", {}); msg($("backupMsg"), "", ""); } catch (e) { msg($("backupMsg"), e.message, "error"); }
-  refresh();
-});
-$("backupForm").addEventListener("submit", async (ev) => {
-  ev.preventDefault(); $("backupSave").disabled = true;
-  try { const r = await api("/api/backup/folder", "POST", {folder: $("backupFolder").value}); $("backupFolder").value = r.folder; msg($("backupMsg"), "Saved. Copies go to " + r.folder + ".", "good"); }
-  catch (e) { msg($("backupMsg"), e.message, "error"); } finally { $("backupSave").disabled = false; }
 });
 $("support").addEventListener("click", async () => {
   try { const r = await api("/api/support"); await navigator.clipboard.writeText(r.text); msg($("notice"), "Copied. Paste it into your message to whoever is helping. It holds no passwords or keys.", "good"); }

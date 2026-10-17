@@ -225,6 +225,9 @@ jobs:
         if: failure() && matrix.name == 'windows'
         shell: pwsh
         run: |
+          Get-ScheduledTask -TaskName 'Ovigyan Connector Update' -ErrorAction SilentlyContinue | Format-List TaskName, State, Actions
+          Get-ScheduledTaskInfo -TaskName 'Ovigyan Connector Update' -ErrorAction SilentlyContinue | Format-List *
+          Get-ChildItem "$env:windir\Temp\Setup Log*.txt" -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName -Tail 100 }
           Get-ChildItem "$env:ProgramData\Ovigyan Connector\*.txt" -ErrorAction SilentlyContinue | ForEach-Object { "--- $_"; Get-Content $_ }
           Get-ChildItem *.log | ForEach-Object { "--- $_"; Get-Content $_ | Select-String -Pattern 'Exception|rror|exit code|register|Running|Process|Start' | Select-Object -Last 40 }
       - uses: actions/upload-artifact@v7
