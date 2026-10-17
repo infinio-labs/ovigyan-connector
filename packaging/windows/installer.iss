@@ -24,7 +24,8 @@ OutputBaseFilename=ovigyan-connector-setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-CloseApplications=yes
+; The tray may still be running when a silent update replaces this executable.
+CloseApplications=force
 SetupLogging=yes
 UninstallDisplayName={#AppName}
 

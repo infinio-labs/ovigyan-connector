@@ -154,6 +154,7 @@ class TestWindows:
         assert create[:4] == ["schtasks.exe", "/Create", "/TN", UPDATE_TASK] and "/RU" in create and "SYSTEM" in create
         assert setup in create[-1] and "/VERYSILENT" in create[-1] and run == ["schtasks.exe", "/Run", "/TN", UPDATE_TASK]
         assert (tmp_path / "updates" / setup).read_bytes() == b"MZsetup"
+        assert f'/LOG="{tmp_path / "update-installer.txt"}"' in create[-1]
 
     def test_a_failed_self_test_never_runs_the_installer(self, tmp_path):
         runner = Runner(ok=False)
