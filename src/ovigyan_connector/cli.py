@@ -17,10 +17,23 @@ from .outbox import Outbox
 from .transport import EventTransport
 
 
+# The settings of the original environment-variable mode. With none of them set, a launch means "set me up".
+LEGACY_VARIABLES = (
+    "ATTENDANCE_DEVICE_HOST",
+    "ATTENDANCE_MACHINE_ID",
+    "ATTENDANCE_INGEST_URL",
+    "ATTENDANCE_DEVICE_TOKEN",
+    "ATTENDANCE_INGEST_SECRET",
+)
+
+
 def required(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
-        raise RuntimeError(f"Missing required environment variable: {name}")
+        raise RuntimeError(
+            f"Missing required environment variable: {name}. This is the old environment-variable mode; "
+            "to pair this PC with Ovigyan instead, install it with the setup file or run `ovigyan-connector run`."
+        )
     return value
 
 
@@ -103,6 +116,9 @@ def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     from .commands import COMMANDS, run_command
 
+    # Started with no instructions (a double-click) and nothing configured the old way: open the setup page.
+    if not arguments and not any(os.environ.get(name, "").strip() for name in LEGACY_VARIABLES):
+        return run_command(["run", "--open"])
     # The paired-connector commands; with none of them, the original environment-variable mode below runs.
     if arguments and arguments[0] in COMMANDS | {"--home"}:
         return run_command(arguments)

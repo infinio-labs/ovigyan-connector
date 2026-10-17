@@ -5,6 +5,13 @@ branch LAN, reads vendor protocols, buffers events locally, and delivers signed
 batches to the Ovigyan cloud control plane. It contains no attendance business
 rules.
 
+## Installing
+
+On Windows, download **`ovigyan-connector-setup-X.Y.Z.exe`** from the release and run it. It sets the connector up as a
+background task and opens its page. The plain `ovigyan-connector.exe` next to it is the program the installer and the
+updater use, not an installer; started with a double-click it opens the same setup page, but it does not start by
+itself after a restart. On Linux use `ovigyan-connector-install.sh`.
+
 ## Paired mode (recommended)
 
 Instead of environment variables, pair the connector with your Ovigyan site once and add terminals by IP.
