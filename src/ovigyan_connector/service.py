@@ -17,6 +17,7 @@ import time
 import urllib.error
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfoNotFoundError
 from typing import Callable
 
 from . import __version__
@@ -307,6 +308,8 @@ class ConnectorService:
                 return self._finish(
                     CycleReport(_utc_now(), "revoked", error.message, 60, [self._status(d, UNKNOWN, error.message) for d in state.devices])
                 )
+            if error.kind == "bad_response":
+                self._probation_faults += 1  # the site answered but this version cannot read it: not a lost connection
             return self._finish(
                 CycleReport(_utc_now(), "offline", error.message, 60, [self._status(d, UNKNOWN, "Waiting for the connection.") for d in state.devices])
             )
@@ -456,7 +459,7 @@ class ConnectorService:
                         self._next_users[serial] = now + 300  # try again soon; an older site without the endpoint just waits
                         raise
                     self._users_sent[serial] = (fingerprint, now)
-        except (ProbeError, CloudError, OSError) as error:
+        except (ProbeError, CloudError, OSError, ZoneInfoNotFoundError) as error:
             print(f"ovigyan-connector: {device.host}: {error}", file=sys.stderr)
 
     def set_device_clock(self, device_id: str) -> int:

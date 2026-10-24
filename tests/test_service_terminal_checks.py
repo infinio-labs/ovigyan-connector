@@ -115,3 +115,34 @@ def test_setting_the_clock_of_an_unknown_terminal_is_explained(tmp_path, cloud):
         with pytest.raises(ProbeError) as caught:
             service.set_device_clock("nope")
     assert caught.value.kind == "not_found"
+
+
+def test_a_bad_timezone_in_the_clock_check_does_not_stop_delivery(tmp_path, cloud):
+    from zoneinfo import ZoneInfoNotFoundError
+
+    def bad_zone(*args):
+        raise ZoneInfoNotFoundError("No time zone found with key Mars/Base")
+
+    with FakeZkDevice([PUNCH(1, "7", "2026-10-06T09:00:00")], serial="SN1") as zk:
+        service = setup(tmp_path, cloud, zk, clock_reader=bad_zone)
+        service.run_cycle()
+    assert len(cloud.received["SN1"]) == 1
+
+
+def test_a_site_answer_this_version_cannot_read_counts_towards_rollback_but_a_lost_connection_does_not(tmp_path, cloud):
+    from ovigyan_connector.cloud import CloudError
+
+    with FakeZkDevice([], serial="SN1") as zk:
+        service = setup(tmp_path, cloud, zk)
+
+        def fail(kind):
+            def config():
+                raise CloudError(kind, "x")
+
+            return type("C", (), {"config": staticmethod(config)})()
+
+        for kind, expected in (("unreachable", 0), ("bad_response", 1)):
+            service._probation_faults = 0
+            service._client = lambda state, kind=kind: fail(kind)
+            assert service.run_cycle().connector == "offline"
+            assert service._probation_faults == expected

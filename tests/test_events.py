@@ -41,3 +41,9 @@ def test_break_and_overtime_punches_are_not_guessed_into_in_or_out():
         for punch in range(0, 6)
     }
     assert directions == {0: "in", 1: "out", 2: "unknown", 3: "unknown", 4: "unknown", 5: "unknown"}
+
+
+def test_event_id_does_not_change_when_the_terminal_timezone_is_corrected():
+    row = SimpleNamespace(uid=1, user_id="42", timestamp=datetime(2026, 9, 10, 9, 15), punch=0, status=1)
+    a, b = from_zk_row(row, "Asia/Kolkata"), from_zk_row(row, "Asia/Dubai")
+    assert a.occurred_at != b.occurred_at and a.event_id == b.event_id

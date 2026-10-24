@@ -30,7 +30,7 @@ jobs:
         include:
           - os: ubuntu-24.04
             artifact: linux
-          - os: windows-latest
+          - os: windows-2025
             artifact: windows
     env:
       SIGN_CERT: ${{ secrets.WINDOWS_SIGN_CERT_BASE64 }}
@@ -38,9 +38,9 @@ jobs:
       WINDOWS_SIGN_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGN_CERT_PASSWORD }}
       BUGSINK_DSN: ${{ vars.BUGSINK_DSN }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.13'
 
@@ -141,7 +141,7 @@ jobs:
           Path('dist', name).write_text('\n'.join(manifest) + '\n', encoding='utf-8')
           PY
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ovigyan-connector-${{ matrix.artifact }}-${{ github.ref_name }}
           path: dist/
@@ -156,7 +156,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: artifacts
 
@@ -171,7 +171,7 @@ jobs:
             echo '::warning::CONNECTOR_UPDATE_SIGNING_KEY is not set; this release will NOT be offered to installed connectors.'
             exit 0
           fi
-          python -m pip install -q cryptography
+          python -m pip install -q cryptography==50.0.2
           python - <<'PY'
           import base64, hashlib, json, os
           from pathlib import Path

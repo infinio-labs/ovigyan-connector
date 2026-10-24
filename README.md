@@ -24,13 +24,13 @@ Everything else (which branch a terminal belongs to, its name, mapping people to
 interval, and the date before which old punches are ignored) is managed in Ovigyan.
 
 ```bash
-# 1. In Ovigyan: Academics > Attendance devices > Add device. Then on this PC:
+# 1. In Ovigyan: Settings > Connectors > Generate key. Then on this PC:
 ovigyan-connector pair --server https://school.example.com --key OVG-XXXXX-XXXXX-XXXXX-XXXXX
 
 # 2. Add each terminal (reads its serial number, model and firmware to check it works):
 ovigyan-connector add-device --host 192.168.1.50            # --port 4370 --password 0 by default
 
-# 3. An administrator approves the terminal in Ovigyan (Academics > Attendance devices > New terminals).
+# 3. An administrator approves the terminal in Ovigyan (Settings > Connectors).
 
 # 4. Run it (a service in production):
 ovigyan-connector run                                       # or: run --once
