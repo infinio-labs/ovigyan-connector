@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from urllib.parse import urlparse
 
 from .adapters import EsslX2008Adapter
+from .cloud import LOCAL_HOSTS
 from .delivery import deliver
 from .events import from_zk_row
 from .outbox import Outbox
@@ -43,7 +44,7 @@ def validate_ingest_url(url: str) -> str:
         return url
     if (
         parsed.scheme == "http"
-        and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        and parsed.hostname in LOCAL_HOSTS
         and os.environ.get("ATTENDANCE_ALLOW_INSECURE_HTTP", "").strip().lower() == "true"
     ):
         return url
@@ -54,7 +55,7 @@ def validate_ingest_url(url: str) -> str:
 
 def validate_test_ingest_url(url: str) -> str:
     parsed = urlparse(url)
-    if parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+    if parsed.scheme != "http" or parsed.hostname not in LOCAL_HOSTS:
         raise RuntimeError("--test-events may send only to a localhost HTTP ingest URL")
     return validate_ingest_url(url)
 

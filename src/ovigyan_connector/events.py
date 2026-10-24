@@ -72,7 +72,10 @@ def from_zk_row(row: Any, timezone_name: str) -> EventEnvelope:
     verify = getattr(row, "status", None)
     # Never use the ZK `uid`: on the terminal it is the user's slot, repeated on every punch, so it
     # would make a user's later punches look like duplicates of the first.
-    event_id = hashlib.sha256(f"{user_id}|{occurred_at}|{punch}|{verify}".encode()).hexdigest()[:32]
+    # The ID hashes the timestamp as the terminal reported it, not the UTC time: the zone is cloud-set and editable,
+    # and correcting it must not turn every punch already delivered into a new one.
+    stamp = timestamp.isoformat() if isinstance(timestamp, datetime) else str(timestamp).strip()
+    event_id = hashlib.sha256(f"{user_id}|{stamp}|{punch}|{verify}".encode()).hexdigest()[:32]
     raw = {
         "uid": getattr(row, "uid", None),
         "user_id": user_id,
